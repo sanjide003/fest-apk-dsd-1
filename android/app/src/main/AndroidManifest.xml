@@ -1,32 +1,29 @@
-name: fest_manager
-description: College Fest Management App
-publish_to: 'none'
-version: 1.0.0+1
-
-environment:
-  sdk: '>=3.0.0 <4.0.0'
-
-dependencies:
-  flutter:
-    sdk: flutter
-  firebase_core: ^2.24.2
-  cloud_firestore: ^4.14.0
-  firebase_auth: ^4.16.0
-  cupertino_icons: ^1.0.2
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^2.0.0
-  # ലോഗോ മാറ്റാനുള്ള പാക്കേജ്
-  flutter_launcher_icons: ^0.13.1
-
-flutter:
-  uses-material-design: true
-
-# ലോഗോ സെറ്റിംഗ്സ്
-flutter_launcher_icons:
-  android: "ic_launcher"
-  ios: true
-  image_path: "icon.png"
-  min_sdk_android: 21
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="es.antonborri.home_widget_counter">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application
+        android:label="College Fest"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+</manifest>

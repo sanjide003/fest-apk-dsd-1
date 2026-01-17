@@ -24,6 +24,10 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
+      # ലോഗോ ജനറേറ്റ് ചെയ്യാനുള്ള പുതിയ സ്റ്റെപ്പ്
+      - name: Generate App Icons
+        run: flutter pub run flutter_launcher_icons
+
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
 

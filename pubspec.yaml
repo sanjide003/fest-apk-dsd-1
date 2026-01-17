@@ -1,7 +1,6 @@
-name: home_widget_counter
-description: "A new Flutter project."
+name: fest_manager
+description: College Fest Management App
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
@@ -10,10 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Firebase Packages (നിങ്ങൾക്ക് വേണ്ടവ)
+  # Firebase Core & Firestore
   firebase_core: ^2.24.2
   cloud_firestore: ^4.14.0
   firebase_auth: ^4.16.0
+  # Icons
   cupertino_icons: ^1.0.2
 
 dev_dependencies:

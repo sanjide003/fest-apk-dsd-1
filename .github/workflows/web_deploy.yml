@@ -24,6 +24,7 @@ jobs:
           channel: 'stable'
       
       - run: flutter pub get
+      # base-href ഓട്ടോമാറ്റിക് ആയി സെറ്റ് ചെയ്യുന്നു
       - run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
 
       - name: Upload artifact

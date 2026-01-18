@@ -501,7 +501,22 @@ class _RegistrationViewState extends State<RegistrationView> {
       ),
     );
   }
-  Widget _dropdown(AsyncSnapshot snap, String hint, String? val, Function(String?) chg) => DropdownButtonFormField(value: val, decoration: InputDecoration(contentPadding: const EdgeInsets.symmetric(horizontal: 10), labelText: hint), items: snap.hasData ? (snap.data!.docs as List).map((d) => DropdownMenuItem(value: d.id as String, child: Text(d['name']))).toList() : [], onChanged: chg);
+
+  // FIX: Web Build Fix for Dropdown Type Mismatch
+  Widget _dropdown(AsyncSnapshot snap, String hint, String? val, void Function(String?)? chg) {
+    List<DropdownMenuItem<String>> items = [];
+    if(snap.hasData) {
+      items = (snap.data!.docs as List).map((d) {
+        return DropdownMenuItem<String>(value: d.id.toString(), child: Text(d['name'].toString()));
+      }).toList();
+    }
+    return DropdownButtonFormField<String>(
+      value: val,
+      decoration: InputDecoration(contentPadding: const EdgeInsets.symmetric(horizontal: 10), labelText: hint),
+      items: items,
+      onChanged: chg,
+    );
+  }
 }
 
 // ==============================================================================
@@ -567,7 +582,16 @@ class _EventsViewState extends State<EventsView> {
       ),
     );
   }
-  Widget _dd(String l, String v, List<String> i, Function(String?) c) => DropdownButtonFormField(value: v, decoration: InputDecoration(labelText: l), items: i.map((e)=>DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: c);
+  
+  // FIX: Web Build Fix for Dropdown Type Mismatch in Events
+  Widget _dd(String l, String v, List<String> i, void Function(String?)? c) {
+    return DropdownButtonFormField<String>(
+      value: v,
+      decoration: InputDecoration(labelText: l),
+      items: i.map((e)=>DropdownMenuItem(value: e, child: Text(e))).toList(),
+      onChanged: c,
+    );
+  }
 }
 
 // ==============================================================================
@@ -609,27 +633,5 @@ class DashboardTab extends StatelessWidget {
       ),
     );
   }
-  Widget _dropdown(AsyncSnapshot snap, String hint, String? val, void Function(String?)? chg) {
-  if (!snap.hasData) return const SizedBox();
-  
-  // Extract items ensuring they are strings
-  List<DropdownMenuItem<String>> items = [];
-  if (snap.data != null && snap.data!.docs.isNotEmpty) {
-    items = (snap.data!.docs as List).map((d) {
-      return DropdownMenuItem<String>(
-        value: d.id.toString(),
-        child: Text(d['name'].toString()),
-      );
-    }).toList();
-  }
-
-  return DropdownButtonFormField<String>(
-    value: val,
-    decoration: InputDecoration(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-      labelText: hint,
-    ),
-    items: items,
-    onChanged: chg,
-  );
+  Widget _statCard(String t, String v, Color c, IconData i) => Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)), child: Row(children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: c.withOpacity(0.1), shape: BoxShape.circle), child: Icon(i, color: c, size: 30)), const SizedBox(width: 20), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(v, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), Text(t, style: const TextStyle(color: Colors.grey))])]));
 }

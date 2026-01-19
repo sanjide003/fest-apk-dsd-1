@@ -24,10 +24,11 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      # ലോഗോ ജനറേറ്റ് ചെയ്യാനുള്ള പുതിയ സ്റ്റെപ്പ്
+      # ലോഗോ ജനറേറ്റ് ചെയ്യാനുള്ള കമാൻഡ്
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons
 
+      # APK സൈസ് കുറച്ച് നിർമ്മിക്കാനുള്ള കമാൻഡ് (ARM64 only)
       - name: Build APK
         run: flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 

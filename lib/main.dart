@@ -1,12 +1,16 @@
+// File: lib/main.dart
+// Version: 1.0
+// Description: ആപ്പിന്റെ പ്രധാന എൻട്രി പോയിന്റ്. ഓതന്റിക്കേഷൻ ചെക്ക് ചെയ്ത് നേരെ ലേഔട്ടിലേക്ക് വിടുന്നു.
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_config.dart';
 import 'layout/responsive_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // ഫയർബേസ് ഇനിഷ്യലൈസ് ചെയ്യുന്നു
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -20,34 +24,28 @@ class FestApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Fest Admin',
+      title: 'Fest Admin Panel',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6366F1), // Indigo Primary
           surface: const Color(0xFFF8FAFC),
-          secondary: const Color(0xFFEC4899), // Pink Secondary
         ),
         fontFamily: 'Roboto',
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           elevation: 0,
           centerTitle: true,
-          titleTextStyle: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
           iconTheme: IconThemeData(color: Colors.black87),
+          titleTextStyle: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
         ),
+        // ഇൻപുട്ട് ബോക്സുകളുടെ ഡിസൈൻ
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
           enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        ),
-        cardTheme: CardTheme(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-          color: Colors.white,
         ),
       ),
       home: const AuthGuard(),
@@ -55,6 +53,7 @@ class FestApp extends StatelessWidget {
   }
 }
 
+// ലോഗിൻ പരിശോധന
 class AuthGuard extends StatefulWidget {
   const AuthGuard({super.key});
   @override
@@ -68,8 +67,8 @@ class _AuthGuardState extends State<AuthGuard> {
     _initAuth();
   }
 
+  // അഡ്മിൻ പാനലിലേക്ക് കയറാൻ Anonymous Login ഉപയോഗിക്കുന്നു
   Future<void> _initAuth() async {
-    // അഡ്മിൻ പാനലിലേക്ക് ആക്സസ് ലഭിക്കാൻ Anonymous Login മതിയാകും (HTML ഫയലിലും ഇതാണ് ഉപയോഗിച്ചിരിക്കുന്നത്)
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       await FirebaseAuth.instance.signInAnonymously();
@@ -84,7 +83,7 @@ class _AuthGuardState extends State<AuthGuard> {
         if (authSnap.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        // ഓതന്റിക്കേഷൻ കഴിഞ്ഞാൽ നേരെ ലേഔട്ടിലേക്ക്
+        // ലോഗിൻ ആണെങ്കിൽ നേരെ പ്രധാന ലേഔട്ടിലേക്ക്
         return const ResponsiveMainLayout();
       },
     );

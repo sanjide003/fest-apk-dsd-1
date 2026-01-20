@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 1.3
-// Description: വെബ്സൈറ്റ് ക്രമീകരണങ്ങൾ. Fest Officials-നെയും Team Leaders-നെയും വെവ്വേറെ മാനേജ് ചെയ്യുന്നു.
+// Version: 1.4
+// Description: സ്മാർട്ട് സോഷ്യൽ മീഡിയ, ഇമേജ് പ്രിവ്യൂ, സ്ക്വയർ ഗാലറി എന്നിവ ഉൾപ്പെടുത്തിയത്.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,8 +19,6 @@ class _WebConfigViewState extends State<WebConfigView> {
   final _festNameCtrl = TextEditingController();
   final _taglineCtrl = TextEditingController();
   final _logoUrlCtrl = TextEditingController();
-  
-  // Controller - Button Color
   final _btnColorCtrl = TextEditingController(text: "#2563EB"); 
   Color _currentColor = const Color(0xFF2563EB);
 
@@ -28,16 +26,12 @@ class _WebConfigViewState extends State<WebConfigView> {
   final _aboutSubCtrl = TextEditingController();
   final _aboutTextCtrl = TextEditingController();
 
-  // Controllers - Social Media
-  final _waCtrl = TextEditingController();
-  final _igCtrl = TextEditingController();
-  final _fbCtrl = TextEditingController();
-  final _ytCtrl = TextEditingController();
-  final _tgCtrl = TextEditingController();
+  // Social Media Link Input
+  final _socialLinkCtrl = TextEditingController();
 
-  // Fest Officials List (Local State for home_config)
+  // Lists
+  Map<String, String> _socialLinks = {}; // { 'wa': 'url', 'yt': 'url' ... }
   List<Map<String, dynamic>> _officials = [];
-  // Gallery List
   List<String> _gallery = [];
 
   @override
@@ -46,7 +40,6 @@ class _WebConfigViewState extends State<WebConfigView> {
     _loadData();
   }
 
-  // home_config ഡാറ്റ ലോഡ് ചെയ്യുന്നു
   void _loadData() {
     db.collection('settings').doc('home_config').get().then((doc) {
       if(doc.exists) {
@@ -64,11 +57,7 @@ class _WebConfigViewState extends State<WebConfigView> {
           _aboutTextCtrl.text = d['aboutText'] ?? '';
 
           if(d['social'] != null) {
-            _waCtrl.text = d['social']['wa'] ?? '';
-            _igCtrl.text = d['social']['ig'] ?? '';
-            _fbCtrl.text = d['social']['fb'] ?? '';
-            _ytCtrl.text = d['social']['yt'] ?? '';
-            _tgCtrl.text = d['social']['tg'] ?? '';
+            _socialLinks = Map<String, String>.from(d['social']);
           }
 
           if(d['leaders'] != null) {
@@ -83,7 +72,6 @@ class _WebConfigViewState extends State<WebConfigView> {
     });
   }
 
-  // സേവ് ചെയ്യുമ്പോൾ (ടീം ലീഡേഴ്സ് ഒഴികെ ബാക്കിയെല്ലാം home_config-ൽ സേവ് ആകും)
   Future<void> _saveConfig() async {
     setState(() => _isLoading = true);
     
@@ -94,14 +82,8 @@ class _WebConfigViewState extends State<WebConfigView> {
       'btnColor': _btnColorCtrl.text,
       'aboutSubtitle': _aboutSubCtrl.text,
       'aboutText': _aboutTextCtrl.text,
-      'social': {
-        'wa': _waCtrl.text,
-        'ig': _igCtrl.text,
-        'fb': _fbCtrl.text,
-        'yt': _ytCtrl.text,
-        'tg': _tgCtrl.text,
-      },
-      'leaders': _officials, // Fest Officials
+      'social': _socialLinks,
+      'leaders': _officials,
       'gallery': _gallery,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -109,20 +91,19 @@ class _WebConfigViewState extends State<WebConfigView> {
     await db.collection('settings').doc('home_config').set(data, SetOptions(merge: true));
     
     setState(() => _isLoading = false);
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Website Configuration Updated Successfully!")));
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Website Configuration Updated!")));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      // സേവ് ബട്ടൺ (പച്ച നിറത്തിൽ)
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isLoading ? null : _saveConfig,
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         icon: _isLoading ? const SizedBox() : const Icon(Icons.save),
-        label: Text(_isLoading ? "SAVING..." : "SAVE ALL CHANGES"),
+        label: Text(_isLoading ? "SAVING..." : "SAVE CHANGES"),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -132,18 +113,13 @@ class _WebConfigViewState extends State<WebConfigView> {
             const SizedBox(height: 20),
             _buildAboutSection(),
             const SizedBox(height: 20),
-            _buildSocialSection(),
+            _buildSmartSocialSection(),
             const SizedBox(height: 20),
-            
-            // 1. FEST OFFICIALS SECTION
             _buildOfficialsSection(),
             const SizedBox(height: 20),
-
-            // 2. TEAM LEADERS SECTION (Synced with Settings)
             _buildTeamLeadersSection(),
             const SizedBox(height: 20),
-            
-            _buildGallerySection(),
+            _buildGalleryGrid(),
             const SizedBox(height: 80), 
           ],
         ),
@@ -159,13 +135,15 @@ class _WebConfigViewState extends State<WebConfigView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Branding & Colors", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const Text("Branding", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 16),
             TextField(controller: _festNameCtrl, decoration: const InputDecoration(labelText: "Fest Name")),
             const SizedBox(height: 10),
             TextField(controller: _taglineCtrl, decoration: const InputDecoration(labelText: "Tagline")),
             const SizedBox(height: 10),
             TextField(controller: _logoUrlCtrl, decoration: const InputDecoration(labelText: "Logo URL", prefixIcon: Icon(Icons.link))),
+            if(_logoUrlCtrl.text.isNotEmpty)
+               Padding(padding: const EdgeInsets.only(top: 10), child: Image.network(_logoUrlCtrl.text, height: 50, errorBuilder: (c,e,s)=>const Text("Invalid URL"))),
             const SizedBox(height: 10),
             Row(children: [
               const Text("Button Color: "),
@@ -180,14 +158,13 @@ class _WebConfigViewState extends State<WebConfigView> {
   }
 
   void _pickColor() {
-    // ലളിതമായ കളർ പിക്കർ
     showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text("Pick Color"),
       content: Wrap(spacing: 5, children: [Colors.blue, Colors.red, Colors.green, Colors.orange, Colors.purple].map((co) => InkWell(onTap: (){ setState((){ _currentColor=co; _btnColorCtrl.text='#${co.value.toRadixString(16).substring(2).toUpperCase()}'; }); Navigator.pop(c); }, child: CircleAvatar(backgroundColor: co))).toList()),
     ));
   }
 
-  // --- 2. ABOUT & SOCIAL ---
+  // --- 2. ABOUT SECTION ---
   Widget _buildAboutSection() {
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
        const Text("About Info", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
@@ -198,18 +175,117 @@ class _WebConfigViewState extends State<WebConfigView> {
     ])));
   }
 
-  Widget _buildSocialSection() {
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-       const Text("Social Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-       const SizedBox(height: 10),
-       TextField(controller: _waCtrl, decoration: const InputDecoration(labelText: "WhatsApp", prefixIcon: Icon(Icons.chat))),
-       const SizedBox(height: 10),
-       TextField(controller: _igCtrl, decoration: const InputDecoration(labelText: "Instagram", prefixIcon: Icon(Icons.camera_alt))),
-       // FB, YT, TG can be added similarly if space permits
-    ])));
+  // --- 3. SMART SOCIAL MEDIA ---
+  Widget _buildSmartSocialSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Social Media Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const SizedBox(height: 10),
+            
+            // Input Area
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _socialLinkCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Paste Profile Link Here",
+                      hintText: "e.g. https://instagram.com/myfest",
+                      prefixIcon: Icon(Icons.link),
+                      isDense: true
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _addSmartLink,
+                  icon: const Icon(Icons.add),
+                  tooltip: "Add Link",
+                )
+              ],
+            ),
+            const SizedBox(height: 5),
+            const Text("Auto-detects: WhatsApp, Instagram, YouTube, Facebook, Telegram", style: TextStyle(fontSize: 10, color: Colors.grey)),
+            
+            const SizedBox(height: 15),
+            
+            // List of Added Links
+            if (_socialLinks.isEmpty)
+              const Padding(padding: EdgeInsets.all(8.0), child: Text("No links added yet.", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _socialLinks.entries.map((e) {
+                  return Chip(
+                    avatar: Icon(_getSocialIcon(e.key), size: 16, color: Colors.white),
+                    label: Text(_getSocialName(e.key)),
+                    backgroundColor: _getSocialColor(e.key),
+                    labelStyle: const TextStyle(color: Colors.white),
+                    deleteIcon: const Icon(Icons.close, size: 16, color: Colors.white),
+                    onDeleted: () {
+                      setState(() {
+                        _socialLinks.remove(e.key);
+                      });
+                    },
+                  );
+                }).toList(),
+              )
+          ],
+        ),
+      ),
+    );
   }
 
-  // --- 3. FEST OFFICIALS (home_config) ---
+  void _addSmartLink() {
+    String url = _socialLinkCtrl.text.trim();
+    if (url.isEmpty) return;
+
+    String platform = 'web';
+    if (url.contains('whatsapp') || url.contains('wa.me')) platform = 'wa';
+    else if (url.contains('instagram')) platform = 'ig';
+    else if (url.contains('youtube') || url.contains('youtu.be')) platform = 'yt';
+    else if (url.contains('facebook') || url.contains('fb.com')) platform = 'fb';
+    else if (url.contains('telegram') || url.contains('t.me')) platform = 'tg';
+
+    setState(() {
+      _socialLinks[platform] = url;
+    });
+    _socialLinkCtrl.clear();
+  }
+
+  IconData _getSocialIcon(String key) {
+    switch(key) {
+      case 'wa': return Icons.chat;
+      case 'ig': return Icons.camera_alt;
+      case 'yt': return Icons.play_circle_fill;
+      case 'fb': return Icons.facebook;
+      case 'tg': return Icons.send;
+      default: return Icons.public;
+    }
+  }
+
+  Color _getSocialColor(String key) {
+    switch(key) {
+      case 'wa': return Colors.green;
+      case 'ig': return Colors.pink;
+      case 'yt': return Colors.red;
+      case 'fb': return Colors.blue.shade800;
+      case 'tg': return Colors.blue;
+      default: return Colors.grey;
+    }
+  }
+
+  String _getSocialName(String key) {
+    const names = {'wa': 'WhatsApp', 'ig': 'Instagram', 'yt': 'YouTube', 'fb': 'Facebook', 'tg': 'Telegram', 'web': 'Website'};
+    return names[key] ?? 'Link';
+  }
+
+  // --- 4. FEST OFFICIALS ---
   Widget _buildOfficialsSection() {
     return Card(
       child: Padding(
@@ -221,8 +297,6 @@ class _WebConfigViewState extends State<WebConfigView> {
               const Text("Fest Officials", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
               IconButton(icon: const Icon(Icons.add_circle, color: Colors.indigo), onPressed: () => _editOfficial())
             ]),
-            const Text("General committee members (Chairman, Convener etc.)", style: TextStyle(fontSize: 11, color: Colors.grey)),
-            const SizedBox(height: 10),
             
             ReorderableListView(
               shrinkWrap: true,
@@ -238,7 +312,13 @@ class _WebConfigViewState extends State<WebConfigView> {
                 for (int i = 0; i < _officials.length; i++)
                   ListTile(
                     key: ValueKey(_officials[i]['name'] + i.toString()),
-                    leading: const Icon(Icons.drag_handle, color: Colors.grey),
+                    leading: CircleAvatar(
+                      backgroundImage: _officials[i]['img'] != null && _officials[i]['img'].isNotEmpty 
+                        ? NetworkImage(_officials[i]['img']) 
+                        : null,
+                      child: _officials[i]['img'] == null || _officials[i]['img'].isEmpty 
+                        ? const Icon(Icons.person) : null,
+                    ),
                     title: Text(_officials[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     subtitle: Text(_officials[i]['name']),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -258,30 +338,46 @@ class _WebConfigViewState extends State<WebConfigView> {
     final nameCtrl = TextEditingController(text: index != null ? _officials[index!]['name'] : '');
     final roleCtrl = TextEditingController(text: index != null ? _officials[index!]['role'] : '');
     final imgCtrl = TextEditingController(text: index != null ? _officials[index!]['img'] : '');
-
-    showDialog(context: context, builder: (c) => AlertDialog(
-      title: Text(index == null ? "Add Official" : "Edit Official"),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-         TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Chairman)")),
-         const SizedBox(height: 10),
-         TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
-         const SizedBox(height: 10),
-         TextField(controller: imgCtrl, decoration: const InputDecoration(labelText: "Image URL (Optional)")),
-      ]),
-      actions: [
-        TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
-        ElevatedButton(onPressed: (){
-          if(nameCtrl.text.isNotEmpty && roleCtrl.text.isNotEmpty) {
-            Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': imgCtrl.text};
-            setState(() { index == null ? _officials.add(d) : _officials[index] = d; });
-            Navigator.pop(c);
-          }
-        }, child: const Text("Add"))
-      ],
+    
+    // Preview Logic using StatefulBuilder
+    showDialog(context: context, builder: (c) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          title: Text(index == null ? "Add Official" : "Edit Official"),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+             TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Chairman)")),
+             const SizedBox(height: 10),
+             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
+             const SizedBox(height: 10),
+             TextField(
+               controller: imgCtrl, 
+               decoration: const InputDecoration(labelText: "Image URL"),
+               onChanged: (v) => setDialogState((){}), // Trigger rebuild for preview
+             ),
+             const SizedBox(height: 10),
+             if(imgCtrl.text.isNotEmpty)
+               Container(
+                 height: 80, width: 80,
+                 decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                 child: Image.network(imgCtrl.text, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
+               )
+          ]),
+          actions: [
+            TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
+            ElevatedButton(onPressed: (){
+              if(nameCtrl.text.isNotEmpty && roleCtrl.text.isNotEmpty) {
+                Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': imgCtrl.text};
+                setState(() { index == null ? _officials.add(d) : _officials[index] = d; });
+                Navigator.pop(c);
+              }
+            }, child: const Text("Save"))
+          ],
+        );
+      }
     ));
   }
 
-  // --- 4. TEAM LEADERS (Synced with Settings) ---
+  // --- 5. TEAM LEADERS (Synced with Settings) ---
   Widget _buildTeamLeadersSection() {
     return Card(
       color: Colors.blue.shade50,
@@ -290,15 +386,10 @@ class _WebConfigViewState extends State<WebConfigView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(children: [
-               Icon(Icons.groups, color: Colors.blue), 
-               SizedBox(width: 8), 
-               Text("Team Leaders (Live Sync)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue))
-            ]),
-            const Text("Edits here will automatically update 'Settings > Teams'.", style: TextStyle(fontSize: 11, color: Colors.grey)),
+            const Row(children: [Icon(Icons.groups, color: Colors.blue), SizedBox(width: 8), Text("Team Leaders", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue))]),
+            const Text("Add images here. Names/Roles sync from Settings.", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 10),
 
-            // settings/general-ൽ നിന്ന് ഡാറ്റ ലൈവ് ആയി എടുക്കുന്നു
             StreamBuilder<DocumentSnapshot>(
               stream: db.collection('settings').doc('general').snapshots(),
               builder: (context, snap) {
@@ -308,7 +399,7 @@ class _WebConfigViewState extends State<WebConfigView> {
                 Map details = data['teamDetails'] ?? {};
                 List teams = data['teams'] ?? [];
 
-                if(teams.isEmpty) return const Text("No teams found in Settings.");
+                if(teams.isEmpty) return const Text("No teams found.");
 
                 return ListView.builder(
                   shrinkWrap: true,
@@ -324,22 +415,21 @@ class _WebConfigViewState extends State<WebConfigView> {
                       title: Text(tName, style: const TextStyle(fontWeight: FontWeight.bold)),
                       leading: CircleAvatar(backgroundColor: Color(colorVal), radius: 10),
                       children: [
-                        if(leaders.isEmpty) 
-                          const Padding(padding: EdgeInsets.all(8.0), child: Text("No leaders added for this team.")),
-                        
                         ...leaders.asMap().entries.map((entry) {
                           int lIdx = entry.key;
                           Map leader = entry.value;
+                          String img = leader['img'] ?? '';
+                          
                           return ListTile(
-                            dense: true,
+                            leading: CircleAvatar(
+                              backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
+                              child: img.isEmpty ? const Icon(Icons.person) : null,
+                            ),
                             title: Text(leader['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                             subtitle: Text(leader['name']),
                             trailing: IconButton(
-                              icon: const Icon(Icons.edit, size: 16, color: Colors.blue),
-                              onPressed: () {
-                                // ടീം ലീഡറെ എഡിറ്റ് ചെയ്യാനുള്ള ഡയലോഗ്
-                                _editTeamLeader(tName, lIdx, leader, details, teams);
-                              },
+                              icon: const Icon(Icons.add_a_photo, size: 20, color: Colors.blue),
+                              onPressed: () => _updateTeamLeaderImage(tName, lIdx, leader, details),
                             ),
                           );
                         }).toList()
@@ -355,52 +445,98 @@ class _WebConfigViewState extends State<WebConfigView> {
     );
   }
 
-  // ടീം ലീഡറെ എഡിറ്റ് ചെയ്യാനും ഓട്ടോമാറ്റിക് ആയി Settings-ൽ അപ്ഡേറ്റ് ചെയ്യാനും
-  void _editTeamLeader(String teamName, int index, Map leaderData, Map allDetails, List allTeams) {
-    TextEditingController nameCtrl = TextEditingController(text: leaderData['name']);
-    TextEditingController roleCtrl = TextEditingController(text: leaderData['role']);
-
-    showDialog(context: context, builder: (c) => AlertDialog(
-      title: Text("Edit $teamName Leader"),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-         TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Position")),
-         const SizedBox(height: 10),
-         TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Student Name")),
-      ]),
-      actions: [
-        TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
-        ElevatedButton(onPressed: () async {
-          if(nameCtrl.text.isNotEmpty) {
-            // Update logic
-            List leaders = List.from(allDetails[teamName]['leaders']);
-            leaders[index] = {'role': roleCtrl.text, 'name': nameCtrl.text};
-            allDetails[teamName]['leaders'] = leaders;
-
-            await db.collection('settings').doc('general').update({
-              'teamDetails': allDetails
-            });
-            Navigator.pop(c);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Updated in Settings!")));
-          }
-        }, child: const Text("Update"))
-      ],
+  void _updateTeamLeaderImage(String teamName, int index, Map leaderData, Map allDetails) {
+    TextEditingController imgCtrl = TextEditingController(text: leaderData['img'] ?? '');
+    
+    showDialog(context: context, builder: (c) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          title: Text("Update Image for ${leaderData['name']}"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: imgCtrl, 
+                decoration: const InputDecoration(labelText: "Image URL"),
+                onChanged: (v) => setDialogState((){}),
+              ),
+              const SizedBox(height: 10),
+              if(imgCtrl.text.isNotEmpty)
+                Container(
+                  height: 100, width: 100,
+                  decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                  child: Image.network(imgCtrl.text, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
+                )
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
+            ElevatedButton(onPressed: () async {
+               // Update Synced Settings
+               List leaders = List.from(allDetails[teamName]['leaders']);
+               leaders[index]['img'] = imgCtrl.text;
+               allDetails[teamName]['leaders'] = leaders;
+               
+               await db.collection('settings').doc('general').update({'teamDetails': allDetails});
+               Navigator.pop(c);
+            }, child: const Text("Update"))
+          ],
+        );
+      }
     ));
   }
 
-  // --- 5. GALLERY ---
-  Widget _buildGallerySection() {
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-           const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-           IconButton(icon: const Icon(Icons.add_photo_alternate), onPressed: _addGallery)
-        ]),
-        const SizedBox(height: 10),
-        ListView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: _gallery.length, itemBuilder: (c,i) => ListTile(
-           leading: Image.network(_gallery[i], width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
-           title: Text(_gallery[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10)),
-           trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 18), onPressed: ()=>setState(()=>_gallery.removeAt(i))),
-        ))
-    ])));
+  // --- 6. GALLERY (SQUARE GRID) ---
+  Widget _buildGalleryGrid() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+               const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+               IconButton(icon: const Icon(Icons.add_photo_alternate), onPressed: _addGallery)
+            ]),
+            
+            _gallery.isEmpty 
+             ? const Text("No images.", style: TextStyle(color: Colors.grey))
+             : GridView.builder(
+                 shrinkWrap: true,
+                 physics: const NeverScrollableScrollPhysics(),
+                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                   crossAxisCount: 3, 
+                   crossAxisSpacing: 8, 
+                   mainAxisSpacing: 8
+                 ),
+                 itemCount: _gallery.length,
+                 itemBuilder: (context, index) {
+                   return Stack(
+                     fit: StackFit.expand,
+                     children: [
+                       ClipRRect(
+                         borderRadius: BorderRadius.circular(8),
+                         child: Image.network(_gallery[index], fit: BoxFit.cover, errorBuilder: (c,e,s)=>Container(color: Colors.grey.shade200, child: const Icon(Icons.error))),
+                       ),
+                       Positioned(
+                         top: 4, right: 4,
+                         child: InkWell(
+                           onTap: () => setState(() => _gallery.removeAt(index)),
+                           child: Container(
+                             padding: const EdgeInsets.all(4),
+                             decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                             child: const Icon(Icons.close, size: 12, color: Colors.white),
+                           ),
+                         ),
+                       )
+                     ],
+                   );
+                 },
+               )
+          ],
+        ),
+      ),
+    );
   }
 
   void _addGallery() {

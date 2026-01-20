@@ -1,11 +1,17 @@
+// File: lib/layout/responsive_layout.dart
+// Version: 1.0
+// Description: വെബ്ബിലും മൊബൈലിലും പ്രവർത്തിക്കുന്ന നാവിഗേഷൻ ബാർ/ഡ്രോയർ.
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import '../screens/dashboard_tab.dart';
-import '../screens/events_tab.dart';
-import '../screens/students_tab.dart';
-import '../screens/registrations_tab.dart'; // പുതിയ ടാബ്
-import '../screens/results_tab.dart'; // പുതിയ ടാബ്
 import '../screens/settings_tab.dart';
+import '../screens/web_config_tab.dart'; // പുതിയ ടാബ്
+
+// താഴെ പറയുന്നവ Placeholder ആണ്. അടുത്ത ഘട്ടത്തിൽ നമ്മൾ ഇവ ഉണ്ടാക്കും.
+// തൽക്കാലം എറർ വരാതിരിക്കാൻ ലളിതമായ വിഡ്ജറ്റുകൾ നൽകുന്നു.
+class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
+class StudentsTab extends StatelessWidget { const StudentsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Students Tab Coming Soon")); }
+class EventsTab extends StatelessWidget { const EventsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Events Tab Coming Soon")); }
 
 class ResponsiveMainLayout extends StatefulWidget {
   const ResponsiveMainLayout({super.key});
@@ -16,18 +22,17 @@ class ResponsiveMainLayout extends StatefulWidget {
 class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> {
   int _idx = 0;
   
-  // എല്ലാ സ്ക്രീനുകളും ഇവിടെ ലിസ്റ്റ് ചെയ്യുന്നു
+  // എല്ലാ സ്ക്രീനുകളും ഇവിടെ ലിസ്റ്റ് ചെയ്യുന്നു (6 ടാബുകൾ)
   final List<Widget> _screens = [
     const DashboardTab(),
-    const RegistrationView(), // Students
-    const EventsView(), // Event Creation
-    const EventRegistrationsView(), // New: Event Mapping
-    const ResultsPublishView(), // New: Result Desk
-    const SettingsView(), // Settings + Web Config
+    const StudentsTab(),
+    const EventsTab(),
+    const WebConfigView(), // Web Config
+    const SettingsView(),  // Settings
   ];
 
-  final List<String> _titles = ["Dashboard", "Students", "Events", "Registrations", "Results Desk", "Settings"];
-  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.calendar_today, Icons.how_to_reg, Icons.emoji_events, Icons.settings];
+  final List<String> _titles = ["Dashboard", "Students", "Events", "Web Config", "Settings"];
+  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.language, Icons.settings];
 
   @override
   Widget build(BuildContext context) {

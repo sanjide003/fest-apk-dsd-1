@@ -1,3 +1,7 @@
+// File: lib/screens/settings_tab.dart
+// Version: 1.0
+// Description: ടീം മാനേജ്‌മെന്റ്, കാറ്റഗറി, ചെസ്റ്റ് നമ്പർ മാട്രിക്സ്, ഫാക്ടറി റീസെറ്റ് എന്നിവ നിയന്ത്രിക്കുന്ന പേജ്.
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -10,45 +14,16 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   final db = FirebaseFirestore.instance;
 
-  // Controllers
+  // കൺട്രോളറുകൾ
   final _teamNameCtrl = TextEditingController();
   final _catNameCtrl = TextEditingController();
-  
-  // Website Config Controllers
-  final _festNameCtrl = TextEditingController();
-  final _taglineCtrl = TextEditingController();
-  final _logoUrlCtrl = TextEditingController();
-  final _socialIgCtrl = TextEditingController();
-  final _socialYtCtrl = TextEditingController();
 
-  // State Variables
+  // സ്റ്റേറ്റ് വേരിയബിളുകൾ
   String _tempMode = 'mixed';
-  bool _chestMatrixLocked = true; // ചെസ്റ്റ് നമ്പർ ലോക്കിംഗ്
+  bool _chestMatrixLocked = true; // ചെസ്റ്റ് നമ്പർ എഡിറ്റിംഗ് ലോക്ക് ചെയ്യാൻ
 
-  @override
-  void initState() {
-    super.initState();
-    _loadWebConfig();
-  }
-
-  void _loadWebConfig() {
-    db.collection('settings').doc('home_config').get().then((doc) {
-      if(doc.exists) {
-        var d = doc.data()!;
-        setState(() {
-          _festNameCtrl.text = d['festName1'] ?? '';
-          _taglineCtrl.text = d['tagline'] ?? '';
-          _logoUrlCtrl.text = d['logoUrl'] ?? '';
-          if(d['social'] != null) {
-            _socialIgCtrl.text = d['social']['ig'] ?? '';
-            _socialYtCtrl.text = d['social']['yt'] ?? '';
-          }
-        });
-      }
-    });
-  }
-
-  // --- CONFIRMATION DIALOG HELPER ---
+  // --- സഹായ ഫംഗ്ഷൻ: കൺഫർമേഷൻ ഡയലോഗ് ---
+  // എഡിറ്റ്/ഡിലീറ്റ് ചെയ്യുന്നതിന് മുൻപ് ഉറപ്പാക്കാൻ ചോദിക്കുന്നു
   Future<bool> _confirmAction(String title, String content, {bool isDelete = false}) async {
     return await showDialog(
       context: context,
@@ -76,7 +51,7 @@ class _SettingsViewState extends State<SettingsView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. FEST MODE SETUP
+            // 1. FEST MODE SETUP (LOCKING SYSTEM)
             _buildModeSection(),
             const SizedBox(height: 24),
 
@@ -86,18 +61,15 @@ class _SettingsViewState extends State<SettingsView> {
 
             // 3. CHEST NUMBER MATRIX
             _buildChestMatrix(),
-            const SizedBox(height: 24),
-
-            // 4. WEBSITE CONFIGURATION
-            _buildWebConfigSection(),
             const SizedBox(height: 40),
 
-            // 5. FACTORY RESET
+            // 4. FACTORY RESET (DANGER ZONE)
              Center(
               child: TextButton.icon(
                 onPressed: _factoryReset,
                 icon: const Icon(Icons.delete_forever, color: Colors.red),
                 label: const Text("FACTORY RESET (Clear All Data)", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), backgroundColor: Colors.red.shade50),
               ),
             ),
             const SizedBox(height: 40),
@@ -108,7 +80,7 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   // ==============================================================================
-  // 1. MODE CONFIGURATION
+  // 1. MODE CONFIGURATION (LOCKING SYSTEM)
   // ==============================================================================
   Widget _buildModeSection() {
     return StreamBuilder<DocumentSnapshot>(
@@ -145,6 +117,16 @@ class _SettingsViewState extends State<SettingsView> {
                     Radio(value: 'boys', groupValue: _tempMode, onChanged: (v)=>setState(()=>_tempMode=v.toString())), const Text("Boys Only"),
                   ]),
                   SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _lockMode, child: const Text("SAVE & LOCK")))
+                ] else ...[
+                   // ലോക്ക് ആയതിന് ശേഷം കാണിക്കുന്ന അൺലോക്ക് ബട്ടൺ
+                   const SizedBox(height: 10),
+                   Align(
+                     alignment: Alignment.centerRight,
+                     child: TextButton(
+                       onPressed: _factoryReset, // അൺലോക്ക് ചെയ്യാൻ റീസെറ്റ് ചെയ്യണം
+                       child: const Text("Unlock (Requires Reset)", style: TextStyle(color: Colors.red, fontSize: 11)),
+                     ),
+                   )
                 ]
               ],
             ),
@@ -154,9 +136,11 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
+  // മോഡ് ലോക്ക് ചെയ്യുന്ന ഫംഗ്ഷൻ
   Future<void> _lockMode() async {
     if(await _confirmAction("Lock Mode?", "Once locked, you can only change this by resetting all data.")) {
       await db.collection('config').doc('main').set({'mode': _tempMode, 'locked': true, 'setupDone': true}, SetOptions(merge: true));
+      // സെറ്റിംഗ്സ് ഡോക്യുമെന്റ് ഇല്ലെങ്കിൽ ഉണ്ടാക്കുന്നു
       await db.collection('settings').doc('general').set({'updated': true}, SetOptions(merge: true));
     }
   }
@@ -173,8 +157,6 @@ class _SettingsViewState extends State<SettingsView> {
         
         List teams = data['teams'] ?? [];
         List cats = data['categories'] ?? [];
-        
-        // Detailed Team Info (Color, Leaders, Passcode)
         Map teamDetails = data['teamDetails'] ?? {}; 
 
         return Column(
@@ -188,14 +170,14 @@ class _SettingsViewState extends State<SettingsView> {
                   children: [
                     const Text("Manage Teams", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
-                    // Simple Add
+                    // Add Team (Simple Name Only)
                     Row(children: [
                       Expanded(child: TextField(controller: _teamNameCtrl, decoration: const InputDecoration(hintText: "Team Name", isDense: true))),
                       const SizedBox(width: 10),
                       ElevatedButton(onPressed: () => _addTeam(teams), child: const Text("Add"))
                     ]),
                     const SizedBox(height: 15),
-                    // List with Edit Option
+                    // Team List
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -214,14 +196,8 @@ class _SettingsViewState extends State<SettingsView> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blue),
-                                onPressed: () => _openTeamEditor(tName, tData, teams, teamDetails),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () => _deleteTeam(tName, teams, teamDetails),
-                              ),
+                              IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openTeamEditor(tName, tData, teams, teamDetails)),
+                              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteTeam(tName, teams, teamDetails)),
                             ],
                           ),
                         );
@@ -243,19 +219,35 @@ class _SettingsViewState extends State<SettingsView> {
                   children: [
                     const Text("Manage Categories", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
+                    // Add Category
                     Row(children: [
                       Expanded(child: TextField(controller: _catNameCtrl, decoration: const InputDecoration(hintText: "Category Name", isDense: true))),
                       const SizedBox(width: 10),
                       ElevatedButton(onPressed: () => _addCat(cats), child: const Text("Add"))
                     ]),
                     const SizedBox(height: 15),
-                    Wrap(
-                      spacing: 8,
-                      children: cats.map((c) => Chip(
-                        label: Text(c),
-                        onDeleted: () => _deleteCat(c, cats),
-                        deleteIcon: const Icon(Icons.close, size: 16),
-                      )).toList(),
+                    // Category List with Edit/Delete
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: cats.length,
+                      separatorBuilder: (c,i) => const SizedBox(height: 8),
+                      itemBuilder: (c, i) {
+                        return Container(
+                          decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
+                          child: ListTile(
+                            dense: true,
+                            title: Text(cats[i], style: const TextStyle(fontWeight: FontWeight.bold)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(icon: const Icon(Icons.edit, size: 18, color: Colors.blue), onPressed: () => _editCat(cats[i], cats)),
+                                IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => _deleteCat(cats[i], cats)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     )
                   ],
                 ),
@@ -267,7 +259,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // --- TEAM FUNCTIONS ---
+  // --- ടീം ഫംഗ്ഷനുകൾ ---
   Future<void> _addTeam(List teams) async {
     if (_teamNameCtrl.text.isEmpty) return;
     String name = _teamNameCtrl.text.trim();
@@ -286,18 +278,18 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  // --- TEAM FULL EDITOR (Dialog) ---
+  // --- ടീം എഡിറ്റർ (POP-UP DIALOG) ---
   void _openTeamEditor(String name, Map currentData, List allTeams, Map allDetails) {
-    // Controllers for Dialog
     TextEditingController editNameCtrl = TextEditingController(text: name);
     TextEditingController editPassCtrl = TextEditingController(text: currentData['passcode'] ?? '');
+    
+    // ലീഡേഴ്സിനെ ചേർക്കാനുള്ള കൺട്രോളറുകൾ
     TextEditingController roleCtrl = TextEditingController();
     TextEditingController personNameCtrl = TextEditingController();
     
     Color selectedColor = Color(currentData['color'] ?? 0xFF2196F3);
-    List<dynamic> leaders = List.from(currentData['leaders'] ?? []); // Clone list
+    List<dynamic> leaders = List.from(currentData['leaders'] ?? []);
     
-    // Colors List
     final List<Color> colors = [Colors.red, Colors.blue, Colors.green, Colors.orange, Colors.purple, Colors.teal, Colors.pink, Colors.brown, Colors.black];
 
     showDialog(
@@ -314,13 +306,12 @@ class _SettingsViewState extends State<SettingsView> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 1. Basic Info
+                    // 1. അടിസ്ഥാന വിവരങ്ങൾ
                     TextField(controller: editNameCtrl, decoration: const InputDecoration(labelText: "Team Name")),
                     const SizedBox(height: 10),
                     TextField(controller: editPassCtrl, decoration: const InputDecoration(labelText: "Passcode")),
                     const SizedBox(height: 10),
                     const Text("Team Color:", style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 5),
                     Wrap(
                       spacing: 5,
                       children: colors.map((c) => InkWell(
@@ -330,21 +321,19 @@ class _SettingsViewState extends State<SettingsView> {
                     ),
                     const Divider(height: 30),
                     
-                    // 2. Leaders & Positions (Drag & Drop)
-                    const Text("Positions / Leaders (Order Matters)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-                    const SizedBox(height: 5),
-                    const Text("Drag to reorder positions for website display.", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                    // 2. ലീഡേഴ്സ് (Drag & Drop)
+                    const Text("Leaders & Positions (Drag to Reorder)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
                     const SizedBox(height: 10),
                     
                     Container(
-                      height: 150, // Limited height for list
+                      height: 200, 
                       decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
                       child: ReorderableListView(
                         padding: const EdgeInsets.all(8),
                         children: [
                           for (int i = 0; i < leaders.length; i++)
                             ListTile(
-                              key: ValueKey(leaders[i]), // Unique key needed
+                              key: ValueKey(leaders[i]), // യുണീക് കീ നിർബന്ധമാണ്
                               tileColor: Colors.grey.shade50,
                               dense: true,
                               leading: const Icon(Icons.drag_handle, color: Colors.grey),
@@ -370,7 +359,7 @@ class _SettingsViewState extends State<SettingsView> {
                       children: [
                         Expanded(child: TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Position (e.g. Captain)", isDense: true))),
                         const SizedBox(width: 5),
-                        Expanded(child: TextField(controller: personNameCtrl, decoration: const InputDecoration(labelText: "Student Name", isDense: true))),
+                        Expanded(child: TextField(controller: personNameCtrl, decoration: const InputDecoration(labelText: "Name", isDense: true))),
                         IconButton(
                           icon: const Icon(Icons.add_circle, color: Colors.green),
                           onPressed: () {
@@ -396,14 +385,12 @@ class _SettingsViewState extends State<SettingsView> {
                   if(await _confirmAction("Update Team?", "Save all changes?")) {
                     String newName = editNameCtrl.text.trim();
                     
-                    // Update Lists
                     if(newName != name) {
                       int idx = allTeams.indexOf(name);
                       if(idx != -1) allTeams[idx] = newName;
-                      allDetails.remove(name); // Remove old key
+                      allDetails.remove(name);
                     }
                     
-                    // Save new data
                     allDetails[newName] = {
                       'color': selectedColor.value,
                       'passcode': editPassCtrl.text,
@@ -427,14 +414,34 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // --- CAT FUNCTIONS ---
+  // --- കാറ്റഗറി ഫംഗ്ഷനുകൾ ---
   Future<void> _addCat(List cats) async {
     if (_catNameCtrl.text.isEmpty) return;
     String name = _catNameCtrl.text.trim();
     if(!cats.contains(name)) {
       cats.add(name);
-      await db.collection('settings').doc('general').set({'categories': cats}, SetOptions(merge: true));
+      await db.collection('settings').doc('general').update({'categories': cats});
       _catNameCtrl.clear();
+    }
+  }
+
+  Future<void> _editCat(String oldName, List cats) async {
+    TextEditingController editCtrl = TextEditingController(text: oldName);
+    bool? save = await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text("Edit Category"),
+      content: TextField(controller: editCtrl),
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(c, false), child: const Text("Cancel")),
+        ElevatedButton(onPressed: ()=>Navigator.pop(c, true), child: const Text("Save"))
+      ],
+    ));
+
+    if(save == true && editCtrl.text.isNotEmpty) {
+      int idx = cats.indexOf(oldName);
+      if(idx != -1) {
+        cats[idx] = editCtrl.text.trim();
+        await db.collection('settings').doc('general').update({'categories': cats});
+      }
     }
   }
 
@@ -447,7 +454,7 @@ class _SettingsViewState extends State<SettingsView> {
 
 
   // ==============================================================================
-  // 3. CHEST MATRIX (LOCK & EDIT)
+  // 3. CHEST NUMBER MATRIX (LOCK & EDIT)
   // ==============================================================================
   Widget _buildChestMatrix() {
     return StreamBuilder<DocumentSnapshot>(
@@ -471,12 +478,9 @@ class _SettingsViewState extends State<SettingsView> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text("Chest Number Matrix", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    // TOGGLE BUTTON
+                    // ലോക്ക്/എഡിറ്റ് ബട്ടൺ
                     ElevatedButton.icon(
                       onPressed: () {
-                         if(!_chestMatrixLocked) {
-                           // Saving logic if needed
-                         }
                          setState(() => _chestMatrixLocked = !_chestMatrixLocked);
                       },
                       icon: Icon(_chestMatrixLocked ? Icons.edit : Icons.save),
@@ -508,7 +512,7 @@ class _SettingsViewState extends State<SettingsView> {
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               child: TextFormField(
                                 initialValue: (chestConfig[key] ?? "").toString(),
-                                enabled: !_chestMatrixLocked, // Locked Check
+                                enabled: !_chestMatrixLocked, // ലോക്ക് ചെയ്തിട്ടുണ്ടെങ്കിൽ ടൈപ്പ് ചെയ്യാൻ പറ്റില്ല
                                 keyboardType: TextInputType.number,
                                 textAlign: TextAlign.center,
                                 decoration: InputDecoration(
@@ -541,62 +545,17 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   // ==============================================================================
-  // 4. WEB CONFIG
-  // ==============================================================================
-  Widget _buildWebConfigSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Website Configuration", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(controller: _festNameCtrl, decoration: const InputDecoration(labelText: "Fest Name")),
-            const SizedBox(height: 10),
-            TextField(controller: _taglineCtrl, decoration: const InputDecoration(labelText: "Tagline")),
-            const SizedBox(height: 10),
-            TextField(controller: _logoUrlCtrl, decoration: const InputDecoration(labelText: "Logo URL")),
-            const SizedBox(height: 10),
-            TextField(controller: _socialIgCtrl, decoration: const InputDecoration(labelText: "Instagram Link")),
-            const SizedBox(height: 10),
-            TextField(controller: _socialYtCtrl, decoration: const InputDecoration(labelText: "YouTube Link")),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  if(await _confirmAction("Update Website?", "This will update the public home page.")) {
-                    await db.collection('settings').doc('home_config').set({
-                      'festName1': _festNameCtrl.text,
-                      'tagline': _taglineCtrl.text,
-                      'logoUrl': _logoUrlCtrl.text,
-                      'social': { 'ig': _socialIgCtrl.text, 'yt': _socialYtCtrl.text },
-                      'updatedAt': FieldValue.serverTimestamp(),
-                    }, SetOptions(merge: true));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Website Updated!")));
-                  }
-                },
-                icon: const Icon(Icons.save),
-                label: const Text("UPDATE WEBSITE SETTINGS"),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ==============================================================================
-  // 5. FACTORY RESET
+  // 4. FACTORY RESET
   // ==============================================================================
   Future<void> _factoryReset() async {
     if (await _confirmAction("FACTORY RESET?", "WARNING: This will delete ALL Data (Students, Events, Results). Cannot be undone.", isDelete: true)) {
       var batch = db.batch();
+      // കോൺഫിഗറേഷനുകൾ ഡിലീറ്റ് ചെയ്യുന്നു
       batch.delete(db.collection('config').doc('main'));
       batch.delete(db.collection('settings').doc('general'));
-      // Delete collections manually in real logic, here simplified
+      batch.delete(db.collection('settings').doc('home_config'));
+      
+      // കളക്ഷനുകൾ ഡിലീറ്റ് ചെയ്യുന്നു (ലളിതമായ രീതി)
       var sSnap = await db.collection('students').get();
       for (var d in sSnap.docs) batch.delete(d.reference);
       var eSnap = await db.collection('events').get();

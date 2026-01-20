@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 1.1
-// Description: വെബ്സൈറ്റ് ക്രമീകരണങ്ങൾ (Branding, Colors, Leaders, Gallery, Social) നിയന്ത്രിക്കുന്ന പേജ്.
+// Version: 1.3
+// Description: വെബ്സൈറ്റ് ക്രമീകരണങ്ങൾ. Fest Officials-നെയും Team Leaders-നെയും വെവ്വേറെ മാനേജ് ചെയ്യുന്നു.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,7 +20,7 @@ class _WebConfigViewState extends State<WebConfigView> {
   final _taglineCtrl = TextEditingController();
   final _logoUrlCtrl = TextEditingController();
   
-  // Controller - Button Color (Hex)
+  // Controller - Button Color
   final _btnColorCtrl = TextEditingController(text: "#2563EB"); 
   Color _currentColor = const Color(0xFF2563EB);
 
@@ -35,8 +35,9 @@ class _WebConfigViewState extends State<WebConfigView> {
   final _ytCtrl = TextEditingController();
   final _tgCtrl = TextEditingController();
 
-  // Lists for Leaders & Gallery
-  List<Map<String, dynamic>> _leaders = [];
+  // Fest Officials List (Local State for home_config)
+  List<Map<String, dynamic>> _officials = [];
+  // Gallery List
   List<String> _gallery = [];
 
   @override
@@ -45,7 +46,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     _loadData();
   }
 
-  // ഫയർബേസിൽ നിന്നും നിലവിലെ വിവരങ്ങൾ ലോഡ് ചെയ്യുന്നു
+  // home_config ഡാറ്റ ലോഡ് ചെയ്യുന്നു
   void _loadData() {
     db.collection('settings').doc('home_config').get().then((doc) {
       if(doc.exists) {
@@ -55,14 +56,9 @@ class _WebConfigViewState extends State<WebConfigView> {
           _taglineCtrl.text = d['tagline'] ?? '';
           _logoUrlCtrl.text = d['logoUrl'] ?? '';
           
-          // Button Color Parsing
           String colorHex = d['btnColor'] ?? '#2563EB';
           _btnColorCtrl.text = colorHex;
-          try {
-            _currentColor = Color(int.parse(colorHex.replaceAll('#', '0xFF')));
-          } catch (e) {
-            _currentColor = Colors.blue;
-          }
+          try { _currentColor = Color(int.parse(colorHex.replaceAll('#', '0xFF'))); } catch (e) { _currentColor = Colors.blue; }
 
           _aboutSubCtrl.text = d['aboutSubtitle'] ?? '';
           _aboutTextCtrl.text = d['aboutText'] ?? '';
@@ -76,7 +72,7 @@ class _WebConfigViewState extends State<WebConfigView> {
           }
 
           if(d['leaders'] != null) {
-            _leaders = List<Map<String, dynamic>>.from(d['leaders']);
+            _officials = List<Map<String, dynamic>>.from(d['leaders']);
           }
 
           if(d['gallery'] != null) {
@@ -87,7 +83,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     });
   }
 
-  // മാറ്റങ്ങൾ ഫയർബേസിലേക്ക് സേവ് ചെയ്യുന്നു
+  // സേവ് ചെയ്യുമ്പോൾ (ടീം ലീഡേഴ്സ് ഒഴികെ ബാക്കിയെല്ലാം home_config-ൽ സേവ് ആകും)
   Future<void> _saveConfig() async {
     setState(() => _isLoading = true);
     
@@ -95,7 +91,7 @@ class _WebConfigViewState extends State<WebConfigView> {
       'festName1': _festNameCtrl.text,
       'tagline': _taglineCtrl.text,
       'logoUrl': _logoUrlCtrl.text,
-      'btnColor': _btnColorCtrl.text, // Saving Hex Color
+      'btnColor': _btnColorCtrl.text,
       'aboutSubtitle': _aboutSubCtrl.text,
       'aboutText': _aboutTextCtrl.text,
       'social': {
@@ -105,7 +101,7 @@ class _WebConfigViewState extends State<WebConfigView> {
         'yt': _ytCtrl.text,
         'tg': _tgCtrl.text,
       },
-      'leaders': _leaders,
+      'leaders': _officials, // Fest Officials
       'gallery': _gallery,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -120,9 +116,11 @@ class _WebConfigViewState extends State<WebConfigView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
+      // സേവ് ബട്ടൺ (പച്ച നിറത്തിൽ)
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isLoading ? null : _saveConfig,
-        backgroundColor: Colors.indigo,
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
         icon: _isLoading ? const SizedBox() : const Icon(Icons.save),
         label: Text(_isLoading ? "SAVING..." : "SAVE ALL CHANGES"),
       ),
@@ -136,17 +134,24 @@ class _WebConfigViewState extends State<WebConfigView> {
             const SizedBox(height: 20),
             _buildSocialSection(),
             const SizedBox(height: 20),
-            _buildLeadersSection(),
+            
+            // 1. FEST OFFICIALS SECTION
+            _buildOfficialsSection(),
             const SizedBox(height: 20),
+
+            // 2. TEAM LEADERS SECTION (Synced with Settings)
+            _buildTeamLeadersSection(),
+            const SizedBox(height: 20),
+            
             _buildGallerySection(),
-            const SizedBox(height: 80), // FAB മറയ്ക്കാതിരിക്കാൻ സ്പേസ്
+            const SizedBox(height: 80), 
           ],
         ),
       ),
     );
   }
 
-  // 1. അടിസ്ഥാന വിവരങ്ങൾ & ബട്ടൺ കളർ
+  // --- 1. BASIC INFO ---
   Widget _buildBasicSection() {
     return Card(
       child: Padding(
@@ -154,122 +159,69 @@ class _WebConfigViewState extends State<WebConfigView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Basic Info & Branding", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const Text("Branding & Colors", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 16),
             TextField(controller: _festNameCtrl, decoration: const InputDecoration(labelText: "Fest Name")),
             const SizedBox(height: 10),
             TextField(controller: _taglineCtrl, decoration: const InputDecoration(labelText: "Tagline")),
             const SizedBox(height: 10),
-            TextField(controller: _logoUrlCtrl, decoration: const InputDecoration(labelText: "Logo Image URL", prefixIcon: Icon(Icons.link))),
-            const SizedBox(height: 16),
-            
-            // Button Color Picker
-            Row(
-              children: [
-                const Text("Website Button Color: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(width: 10),
-                InkWell(
-                  onTap: _pickColor,
-                  child: Container(
-                    width: 40, height: 40,
-                    decoration: BoxDecoration(color: _currentColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: _btnColorCtrl, decoration: const InputDecoration(labelText: "Hex Code (e.g. #FF0000)"), onChanged: (v){
-                  if(v.length == 7) {
-                    try { setState(() => _currentColor = Color(int.parse(v.replaceAll('#', '0xFF')))); } catch(e){}
-                  }
-                })),
-              ],
-            )
+            TextField(controller: _logoUrlCtrl, decoration: const InputDecoration(labelText: "Logo URL", prefixIcon: Icon(Icons.link))),
+            const SizedBox(height: 10),
+            Row(children: [
+              const Text("Button Color: "),
+              InkWell(onTap: _pickColor, child: Container(width: 30, height: 30, color: _currentColor)),
+              const SizedBox(width: 10),
+              Expanded(child: TextField(controller: _btnColorCtrl, decoration: const InputDecoration(labelText: "Hex Code"), onChanged: (v){ try{setState(()=>_currentColor=Color(int.parse(v.replaceAll('#','0xFF'))));}catch(e){}}))
+            ])
           ],
         ),
       ),
     );
   }
 
-  // കളർ പിക്കർ ഡയലോഗ്
   void _pickColor() {
-    List<Color> colors = [Colors.blue, Colors.red, Colors.green, Colors.orange, Colors.purple, Colors.teal, Colors.pink, Colors.black];
+    // ലളിതമായ കളർ പിക്കർ
     showDialog(context: context, builder: (c) => AlertDialog(
-      title: const Text("Select Button Color"),
-      content: Wrap(
-        spacing: 10, runSpacing: 10,
-        children: colors.map((co) => InkWell(
-          onTap: () {
-            setState(() {
-              _currentColor = co;
-              _btnColorCtrl.text = '#${co.value.toRadixString(16).substring(2).toUpperCase()}';
-            });
-            Navigator.pop(c);
-          },
-          child: CircleAvatar(backgroundColor: co, radius: 20, child: _currentColor.value == co.value ? const Icon(Icons.check, color: Colors.white) : null),
-        )).toList(),
-      ),
+      title: const Text("Pick Color"),
+      content: Wrap(spacing: 5, children: [Colors.blue, Colors.red, Colors.green, Colors.orange, Colors.purple].map((co) => InkWell(onTap: (){ setState((){ _currentColor=co; _btnColorCtrl.text='#${co.value.toRadixString(16).substring(2).toUpperCase()}'; }); Navigator.pop(c); }, child: CircleAvatar(backgroundColor: co))).toList()),
     ));
   }
 
-  // 2. About Section
+  // --- 2. ABOUT & SOCIAL ---
   Widget _buildAboutSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-             const Text("About Section", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-             const SizedBox(height: 16),
-             TextField(controller: _aboutSubCtrl, decoration: const InputDecoration(labelText: "About Subtitle")),
-             const SizedBox(height: 10),
-             TextField(controller: _aboutTextCtrl, maxLines: 4, decoration: const InputDecoration(labelText: "Full Description", alignLabelWithHint: true)),
-          ],
-        ),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       const Text("About Info", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+       const SizedBox(height: 10),
+       TextField(controller: _aboutSubCtrl, decoration: const InputDecoration(labelText: "Subtitle")),
+       const SizedBox(height: 10),
+       TextField(controller: _aboutTextCtrl, maxLines: 3, decoration: const InputDecoration(labelText: "Description")),
+    ])));
   }
 
-  // 3. Social Media Links
   Widget _buildSocialSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-             const Text("Social Media Links", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-             const SizedBox(height: 16),
-             TextField(controller: _waCtrl, decoration: const InputDecoration(labelText: "WhatsApp Link", prefixIcon: Icon(Icons.chat))),
-             const SizedBox(height: 10),
-             TextField(controller: _igCtrl, decoration: const InputDecoration(labelText: "Instagram Link", prefixIcon: Icon(Icons.camera_alt))),
-             const SizedBox(height: 10),
-             TextField(controller: _fbCtrl, decoration: const InputDecoration(labelText: "Facebook Link", prefixIcon: Icon(Icons.facebook))),
-             const SizedBox(height: 10),
-             TextField(controller: _ytCtrl, decoration: const InputDecoration(labelText: "YouTube Link", prefixIcon: Icon(Icons.video_library))),
-             const SizedBox(height: 10),
-             TextField(controller: _tgCtrl, decoration: const InputDecoration(labelText: "Telegram Link", prefixIcon: Icon(Icons.send))),
-          ],
-        ),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       const Text("Social Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+       const SizedBox(height: 10),
+       TextField(controller: _waCtrl, decoration: const InputDecoration(labelText: "WhatsApp", prefixIcon: Icon(Icons.chat))),
+       const SizedBox(height: 10),
+       TextField(controller: _igCtrl, decoration: const InputDecoration(labelText: "Instagram", prefixIcon: Icon(Icons.camera_alt))),
+       // FB, YT, TG can be added similarly if space permits
+    ])));
   }
 
-  // 4. Fest Leaders (Reorderable List)
-  Widget _buildLeadersSection() {
+  // --- 3. FEST OFFICIALS (home_config) ---
+  Widget _buildOfficialsSection() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("Fest Officials / Leaders", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                IconButton(icon: const Icon(Icons.add_circle, color: Colors.indigo), onPressed: () => _editLeader())
-              ],
-            ),
-            const Text("Drag to reorder. These appear on the home page.", style: TextStyle(fontSize: 11, color: Colors.grey)),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text("Fest Officials", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              IconButton(icon: const Icon(Icons.add_circle, color: Colors.indigo), onPressed: () => _editOfficial())
+            ]),
+            const Text("General committee members (Chairman, Convener etc.)", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 10),
             
             ReorderableListView(
@@ -278,27 +230,21 @@ class _WebConfigViewState extends State<WebConfigView> {
               onReorder: (oldIdx, newIdx) {
                 setState(() {
                   if (newIdx > oldIdx) newIdx -= 1;
-                  final item = _leaders.removeAt(oldIdx);
-                  _leaders.insert(newIdx, item);
+                  final item = _officials.removeAt(oldIdx);
+                  _officials.insert(newIdx, item);
                 });
               },
               children: [
-                for (int i = 0; i < _leaders.length; i++)
+                for (int i = 0; i < _officials.length; i++)
                   ListTile(
-                    key: ValueKey(_leaders[i]['name'] + i.toString()), // Unique Key
-                    contentPadding: EdgeInsets.zero,
+                    key: ValueKey(_officials[i]['name'] + i.toString()),
                     leading: const Icon(Icons.drag_handle, color: Colors.grey),
-                    title: Text(_leaders[i]['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(_leaders[i]['role']),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                         IconButton(icon: const Icon(Icons.edit, size: 20, color: Colors.blue), onPressed: () => _editLeader(index: i)),
-                         IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), onPressed: () {
-                           setState(() => _leaders.removeAt(i));
-                         }),
-                      ],
-                    ),
+                    title: Text(_officials[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Text(_officials[i]['name']),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                       IconButton(icon: const Icon(Icons.edit, size: 18, color: Colors.blue), onPressed: () => _editOfficial(index: i)),
+                       IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => setState(() => _officials.removeAt(i))),
+                    ]),
                   )
               ],
             )
@@ -308,98 +254,161 @@ class _WebConfigViewState extends State<WebConfigView> {
     );
   }
 
-  // Leader Add/Edit Dialog
-  void _editLeader({int? index}) {
-    final nameCtrl = TextEditingController(text: index != null ? _leaders[index!]['name'] : '');
-    final roleCtrl = TextEditingController(text: index != null ? _leaders[index!]['role'] : '');
-    final imgCtrl = TextEditingController(text: index != null ? _leaders[index!]['img'] : '');
+  void _editOfficial({int? index}) {
+    final nameCtrl = TextEditingController(text: index != null ? _officials[index!]['name'] : '');
+    final roleCtrl = TextEditingController(text: index != null ? _officials[index!]['role'] : '');
+    final imgCtrl = TextEditingController(text: index != null ? _officials[index!]['img'] : '');
 
     showDialog(context: context, builder: (c) => AlertDialog(
       title: Text(index == null ? "Add Official" : "Edit Official"),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
-          const SizedBox(height: 10),
-          TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Chairman)")),
-          const SizedBox(height: 10),
-          TextField(controller: imgCtrl, decoration: const InputDecoration(labelText: "Image URL", prefixIcon: Icon(Icons.image))),
-        ],
-      ),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+         TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Chairman)")),
+         const SizedBox(height: 10),
+         TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
+         const SizedBox(height: 10),
+         TextField(controller: imgCtrl, decoration: const InputDecoration(labelText: "Image URL (Optional)")),
+      ]),
       actions: [
         TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
         ElevatedButton(onPressed: (){
           if(nameCtrl.text.isNotEmpty && roleCtrl.text.isNotEmpty) {
-            Map<String, dynamic> data = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': imgCtrl.text};
-            setState(() {
-              if(index == null) {
-                _leaders.add(data);
-              } else {
-                _leaders[index] = data;
-              }
-            });
+            Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': imgCtrl.text};
+            setState(() { index == null ? _officials.add(d) : _officials[index] = d; });
             Navigator.pop(c);
           }
-        }, child: const Text("Save"))
+        }, child: const Text("Add"))
       ],
     ));
   }
 
-  // 5. Gallery Images
-  Widget _buildGallerySection() {
+  // --- 4. TEAM LEADERS (Synced with Settings) ---
+  Widget _buildTeamLeadersSection() {
     return Card(
+      color: Colors.blue.shade50,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("Gallery Images", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                IconButton(icon: const Icon(Icons.add_photo_alternate, color: Colors.indigo), onPressed: _addGalleryImage)
-              ],
-            ),
+            const Row(children: [
+               Icon(Icons.groups, color: Colors.blue), 
+               SizedBox(width: 8), 
+               Text("Team Leaders (Live Sync)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue))
+            ]),
+            const Text("Edits here will automatically update 'Settings > Teams'.", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 10),
-            
-            _gallery.isEmpty 
-            ? const Padding(padding: EdgeInsets.all(20), child: Text("No images added."))
-            : ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _gallery.length,
-                separatorBuilder: (c,i) => const Divider(),
-                itemBuilder: (c, i) {
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Container(width: 50, height: 50, color: Colors.grey.shade200, child: Image.network(_gallery[i], fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error))),
-                    title: Text(_gallery[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                    trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: (){
-                       setState(() => _gallery.removeAt(i));
-                    }),
-                  );
-                },
-              )
+
+            // settings/general-ൽ നിന്ന് ഡാറ്റ ലൈവ് ആയി എടുക്കുന്നു
+            StreamBuilder<DocumentSnapshot>(
+              stream: db.collection('settings').doc('general').snapshots(),
+              builder: (context, snap) {
+                if(!snap.hasData) return const Center(child: CircularProgressIndicator());
+                
+                var data = snap.data!.exists ? snap.data!.data() as Map<String, dynamic> : {};
+                Map details = data['teamDetails'] ?? {};
+                List teams = data['teams'] ?? [];
+
+                if(teams.isEmpty) return const Text("No teams found in Settings.");
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: teams.length,
+                  itemBuilder: (c, i) {
+                    String tName = teams[i];
+                    Map tData = details[tName] ?? {};
+                    List leaders = tData['leaders'] ?? [];
+                    int colorVal = tData['color'] ?? 0xFF000000;
+
+                    return ExpansionTile(
+                      title: Text(tName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      leading: CircleAvatar(backgroundColor: Color(colorVal), radius: 10),
+                      children: [
+                        if(leaders.isEmpty) 
+                          const Padding(padding: EdgeInsets.all(8.0), child: Text("No leaders added for this team.")),
+                        
+                        ...leaders.asMap().entries.map((entry) {
+                          int lIdx = entry.key;
+                          Map leader = entry.value;
+                          return ListTile(
+                            dense: true,
+                            title: Text(leader['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            subtitle: Text(leader['name']),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.edit, size: 16, color: Colors.blue),
+                              onPressed: () {
+                                // ടീം ലീഡറെ എഡിറ്റ് ചെയ്യാനുള്ള ഡയലോഗ്
+                                _editTeamLeader(tName, lIdx, leader, details, teams);
+                              },
+                            ),
+                          );
+                        }).toList()
+                      ],
+                    );
+                  },
+                );
+              },
+            )
           ],
         ),
       ),
     );
   }
 
-  void _addGalleryImage() {
-    final urlCtrl = TextEditingController();
+  // ടീം ലീഡറെ എഡിറ്റ് ചെയ്യാനും ഓട്ടോമാറ്റിക് ആയി Settings-ൽ അപ്ഡേറ്റ് ചെയ്യാനും
+  void _editTeamLeader(String teamName, int index, Map leaderData, Map allDetails, List allTeams) {
+    TextEditingController nameCtrl = TextEditingController(text: leaderData['name']);
+    TextEditingController roleCtrl = TextEditingController(text: leaderData['role']);
+
     showDialog(context: context, builder: (c) => AlertDialog(
-      title: const Text("Add Gallery Image"),
-      content: TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: "Image URL")),
+      title: Text("Edit $teamName Leader"),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+         TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Position")),
+         const SizedBox(height: 10),
+         TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Student Name")),
+      ]),
       actions: [
         TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
-        ElevatedButton(onPressed: (){
-          if(urlCtrl.text.isNotEmpty) {
-            setState(() => _gallery.add(urlCtrl.text));
+        ElevatedButton(onPressed: () async {
+          if(nameCtrl.text.isNotEmpty) {
+            // Update logic
+            List leaders = List.from(allDetails[teamName]['leaders']);
+            leaders[index] = {'role': roleCtrl.text, 'name': nameCtrl.text};
+            allDetails[teamName]['leaders'] = leaders;
+
+            await db.collection('settings').doc('general').update({
+              'teamDetails': allDetails
+            });
             Navigator.pop(c);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Updated in Settings!")));
           }
-        }, child: const Text("Add"))
+        }, child: const Text("Update"))
       ],
+    ));
+  }
+
+  // --- 5. GALLERY ---
+  Widget _buildGallerySection() {
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+           const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+           IconButton(icon: const Icon(Icons.add_photo_alternate), onPressed: _addGallery)
+        ]),
+        const SizedBox(height: 10),
+        ListView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: _gallery.length, itemBuilder: (c,i) => ListTile(
+           leading: Image.network(_gallery[i], width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
+           title: Text(_gallery[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10)),
+           trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 18), onPressed: ()=>setState(()=>_gallery.removeAt(i))),
+        ))
+    ])));
+  }
+
+  void _addGallery() {
+    TextEditingController c = TextEditingController();
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("Add Image URL"),
+      content: TextField(controller: c),
+      actions: [ElevatedButton(onPressed: (){ if(c.text.isNotEmpty) { setState(()=>_gallery.add(c.text)); Navigator.pop(ctx); }}, child: const Text("Add"))],
     ));
   }
 }

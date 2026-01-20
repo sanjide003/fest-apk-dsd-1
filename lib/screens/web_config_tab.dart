@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 1.4
-// Description: സ്മാർട്ട് സോഷ്യൽ മീഡിയ, ഇമേജ് പ്രിവ്യൂ, സ്ക്വയർ ഗാലറി എന്നിവ ഉൾപ്പെടുത്തിയത്.
+// Version: 2.0
+// Description: സ്മാർട്ട് സോഷ്യൽ മീഡിയ, Google Drive ലിങ്ക് ഫിക്സിംഗ്, സ്ക്വയർ ഗാലറി.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -40,6 +40,21 @@ class _WebConfigViewState extends State<WebConfigView> {
     _loadData();
   }
 
+  // --- GOOGLE DRIVE URL FIXER ---
+  // ഗൂഗിൾ ഡ്രൈവ് വ്യൂ ലിങ്കുകളെ ഡയറക്ട് ഇമേജ് ലിങ്കുകളാക്കി മാറ്റുന്നു
+  String _fixDriveLink(String url) {
+    if (url.contains('drive.google.com')) {
+      // ID കണ്ടുപിടിക്കുന്നു (e.g., /d/FILE_ID/view)
+      RegExp regExp = RegExp(r'/d/([a-zA-Z0-9_-]+)');
+      Match? match = regExp.firstMatch(url);
+      if (match != null && match.groupCount >= 1) {
+        String id = match.group(1)!;
+        return 'https://drive.google.com/uc?id=$id'; // Direct link format
+      }
+    }
+    return url;
+  }
+
   void _loadData() {
     db.collection('settings').doc('home_config').get().then((doc) {
       if(doc.exists) {
@@ -59,11 +74,9 @@ class _WebConfigViewState extends State<WebConfigView> {
           if(d['social'] != null) {
             _socialLinks = Map<String, String>.from(d['social']);
           }
-
           if(d['leaders'] != null) {
             _officials = List<Map<String, dynamic>>.from(d['leaders']);
           }
-
           if(d['gallery'] != null) {
             _gallery = List<String>.from(d['gallery']);
           }
@@ -75,10 +88,13 @@ class _WebConfigViewState extends State<WebConfigView> {
   Future<void> _saveConfig() async {
     setState(() => _isLoading = true);
     
+    // ലോഗോ ലിങ്ക് ഡ്രൈവ് ആണെങ്കിൽ ഫിക്സ് ചെയ്യുന്നു
+    String fixedLogo = _fixDriveLink(_logoUrlCtrl.text);
+
     Map<String, dynamic> data = {
       'festName1': _festNameCtrl.text,
       'tagline': _taglineCtrl.text,
-      'logoUrl': _logoUrlCtrl.text,
+      'logoUrl': fixedLogo,
       'btnColor': _btnColorCtrl.text,
       'aboutSubtitle': _aboutSubCtrl.text,
       'aboutText': _aboutTextCtrl.text,
@@ -91,7 +107,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     await db.collection('settings').doc('home_config').set(data, SetOptions(merge: true));
     
     setState(() => _isLoading = false);
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Website Configuration Updated!")));
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Configuration Saved Successfully!")));
   }
 
   @override
@@ -100,10 +116,10 @@ class _WebConfigViewState extends State<WebConfigView> {
       backgroundColor: const Color(0xFFF8FAFC),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isLoading ? null : _saveConfig,
-        backgroundColor: Colors.green,
+        backgroundColor: Colors.green, // പച്ച നിറം
         foregroundColor: Colors.white,
         icon: _isLoading ? const SizedBox() : const Icon(Icons.save),
-        label: Text(_isLoading ? "SAVING..." : "SAVE CHANGES"),
+        label: Text(_isLoading ? "SAVING..." : "SAVE ALL CHANGES"),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -119,7 +135,7 @@ class _WebConfigViewState extends State<WebConfigView> {
             const SizedBox(height: 20),
             _buildTeamLeadersSection(),
             const SizedBox(height: 20),
-            _buildGalleryGrid(),
+            _buildGalleryGrid(), // Square Grid
             const SizedBox(height: 80), 
           ],
         ),
@@ -127,7 +143,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     );
   }
 
-  // --- 1. BASIC INFO ---
+  // ... (Basic & About Section Code same as before) ...
   Widget _buildBasicSection() {
     return Card(
       child: Padding(
@@ -141,9 +157,14 @@ class _WebConfigViewState extends State<WebConfigView> {
             const SizedBox(height: 10),
             TextField(controller: _taglineCtrl, decoration: const InputDecoration(labelText: "Tagline")),
             const SizedBox(height: 10),
-            TextField(controller: _logoUrlCtrl, decoration: const InputDecoration(labelText: "Logo URL", prefixIcon: Icon(Icons.link))),
+            // ഇമേജ് പ്രിവ്യൂ
+            TextField(
+              controller: _logoUrlCtrl, 
+              decoration: const InputDecoration(labelText: "Logo URL", prefixIcon: Icon(Icons.link)),
+              onChanged: (v)=>setState((){}), // പ്രിവ്യൂ കാണിക്കാൻ
+            ),
             if(_logoUrlCtrl.text.isNotEmpty)
-               Padding(padding: const EdgeInsets.only(top: 10), child: Image.network(_logoUrlCtrl.text, height: 50, errorBuilder: (c,e,s)=>const Text("Invalid URL"))),
+               Padding(padding: const EdgeInsets.only(top: 10), child: Image.network(_fixDriveLink(_logoUrlCtrl.text), height: 50, errorBuilder: (c,e,s)=>const Text("Invalid Image"))),
             const SizedBox(height: 10),
             Row(children: [
               const Text("Button Color: "),
@@ -164,7 +185,6 @@ class _WebConfigViewState extends State<WebConfigView> {
     ));
   }
 
-  // --- 2. ABOUT SECTION ---
   Widget _buildAboutSection() {
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
        const Text("About Info", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
@@ -175,7 +195,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     ])));
   }
 
-  // --- 3. SMART SOCIAL MEDIA ---
+  // --- SMART SOCIAL MEDIA (AUTO DETECT) ---
   Widget _buildSmartSocialSection() {
     return Card(
       child: Padding(
@@ -186,7 +206,6 @@ class _WebConfigViewState extends State<WebConfigView> {
             const Text("Social Media Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 10),
             
-            // Input Area
             Row(
               children: [
                 Expanded(
@@ -194,7 +213,7 @@ class _WebConfigViewState extends State<WebConfigView> {
                     controller: _socialLinkCtrl,
                     decoration: const InputDecoration(
                       labelText: "Paste Profile Link Here",
-                      hintText: "e.g. https://instagram.com/myfest",
+                      hintText: "WhatsApp, YouTube, Insta etc.",
                       prefixIcon: Icon(Icons.link),
                       isDense: true
                     ),
@@ -208,14 +227,12 @@ class _WebConfigViewState extends State<WebConfigView> {
                 )
               ],
             ),
-            const SizedBox(height: 5),
-            const Text("Auto-detects: WhatsApp, Instagram, YouTube, Facebook, Telegram", style: TextStyle(fontSize: 10, color: Colors.grey)),
             
             const SizedBox(height: 15),
             
-            // List of Added Links
+            // ലിസ്റ്റ്
             if (_socialLinks.isEmpty)
-              const Padding(padding: EdgeInsets.all(8.0), child: Text("No links added yet.", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
+              const Padding(padding: EdgeInsets.all(8.0), child: Text("No links added.", style: TextStyle(color: Colors.grey)))
             else
               Wrap(
                 spacing: 8,
@@ -245,6 +262,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     String url = _socialLinkCtrl.text.trim();
     if (url.isEmpty) return;
 
+    // ഓട്ടോമാറ്റിക് ആയി തിരിച്ചറിയുന്നു
     String platform = 'web';
     if (url.contains('whatsapp') || url.contains('wa.me')) platform = 'wa';
     else if (url.contains('instagram')) platform = 'ig';
@@ -285,7 +303,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     return names[key] ?? 'Link';
   }
 
-  // --- 4. FEST OFFICIALS ---
+  // --- FEST OFFICIALS (Preview Added) ---
   Widget _buildOfficialsSection() {
     return Card(
       child: Padding(
@@ -314,16 +332,15 @@ class _WebConfigViewState extends State<WebConfigView> {
                     key: ValueKey(_officials[i]['name'] + i.toString()),
                     leading: CircleAvatar(
                       backgroundImage: _officials[i]['img'] != null && _officials[i]['img'].isNotEmpty 
-                        ? NetworkImage(_officials[i]['img']) 
+                        ? NetworkImage(_fixDriveLink(_officials[i]['img'])) 
                         : null,
-                      child: _officials[i]['img'] == null || _officials[i]['img'].isEmpty 
-                        ? const Icon(Icons.person) : null,
+                      child: _officials[i]['img'] == null || _officials[i]['img'].isEmpty ? const Icon(Icons.person) : null,
                     ),
-                    title: Text(_officials[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    title: Text(_officials[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(_officials[i]['name']),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                       IconButton(icon: const Icon(Icons.edit, size: 18, color: Colors.blue), onPressed: () => _editOfficial(index: i)),
-                       IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => setState(() => _officials.removeAt(i))),
+                       IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _editOfficial(index: i)),
+                       IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => _officials.removeAt(i))),
                     ]),
                   )
               ],
@@ -339,34 +356,35 @@ class _WebConfigViewState extends State<WebConfigView> {
     final roleCtrl = TextEditingController(text: index != null ? _officials[index!]['role'] : '');
     final imgCtrl = TextEditingController(text: index != null ? _officials[index!]['img'] : '');
     
-    // Preview Logic using StatefulBuilder
+    // ഡയലോഗിൽ പ്രിവ്യൂ കാണിക്കുന്നു
     showDialog(context: context, builder: (c) => StatefulBuilder(
       builder: (context, setDialogState) {
+        String currentUrl = _fixDriveLink(imgCtrl.text);
         return AlertDialog(
           title: Text(index == null ? "Add Official" : "Edit Official"),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-             TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Chairman)")),
+             TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role")),
              const SizedBox(height: 10),
              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
              const SizedBox(height: 10),
              TextField(
                controller: imgCtrl, 
                decoration: const InputDecoration(labelText: "Image URL"),
-               onChanged: (v) => setDialogState((){}), // Trigger rebuild for preview
+               onChanged: (v) => setDialogState((){}), // പ്രിവ്യൂ അപ്ഡേറ്റ് ആകാൻ
              ),
              const SizedBox(height: 10),
-             if(imgCtrl.text.isNotEmpty)
+             if(currentUrl.isNotEmpty)
                Container(
                  height: 80, width: 80,
                  decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                 child: Image.network(imgCtrl.text, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
+                 child: Image.network(currentUrl, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.broken_image)),
                )
           ]),
           actions: [
             TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Cancel")),
             ElevatedButton(onPressed: (){
-              if(nameCtrl.text.isNotEmpty && roleCtrl.text.isNotEmpty) {
-                Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': imgCtrl.text};
+              if(nameCtrl.text.isNotEmpty) {
+                Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': _fixDriveLink(imgCtrl.text)};
                 setState(() { index == null ? _officials.add(d) : _officials[index] = d; });
                 Navigator.pop(c);
               }
@@ -377,7 +395,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     ));
   }
 
-  // --- 5. TEAM LEADERS (Synced with Settings) ---
+  // --- TEAM LEADERS (Synced with Settings) ---
   Widget _buildTeamLeadersSection() {
     return Card(
       color: Colors.blue.shade50,
@@ -418,7 +436,7 @@ class _WebConfigViewState extends State<WebConfigView> {
                         ...leaders.asMap().entries.map((entry) {
                           int lIdx = entry.key;
                           Map leader = entry.value;
-                          String img = leader['img'] ?? '';
+                          String img = _fixDriveLink(leader['img'] ?? '');
                           
                           return ListTile(
                             leading: CircleAvatar(
@@ -450,6 +468,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     
     showDialog(context: context, builder: (c) => StatefulBuilder(
       builder: (context, setDialogState) {
+        String currentUrl = _fixDriveLink(imgCtrl.text);
         return AlertDialog(
           title: Text("Update Image for ${leaderData['name']}"),
           content: Column(
@@ -461,11 +480,11 @@ class _WebConfigViewState extends State<WebConfigView> {
                 onChanged: (v) => setDialogState((){}),
               ),
               const SizedBox(height: 10),
-              if(imgCtrl.text.isNotEmpty)
+              if(currentUrl.isNotEmpty)
                 Container(
                   height: 100, width: 100,
                   decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                  child: Image.network(imgCtrl.text, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
+                  child: Image.network(currentUrl, fit: BoxFit.cover, errorBuilder: (c,e,s)=>const Icon(Icons.error)),
                 )
             ],
           ),
@@ -474,7 +493,7 @@ class _WebConfigViewState extends State<WebConfigView> {
             ElevatedButton(onPressed: () async {
                // Update Synced Settings
                List leaders = List.from(allDetails[teamName]['leaders']);
-               leaders[index]['img'] = imgCtrl.text;
+               leaders[index]['img'] = _fixDriveLink(imgCtrl.text);
                allDetails[teamName]['leaders'] = leaders;
                
                await db.collection('settings').doc('general').update({'teamDetails': allDetails});
@@ -507,7 +526,8 @@ class _WebConfigViewState extends State<WebConfigView> {
                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                    crossAxisCount: 3, 
                    crossAxisSpacing: 8, 
-                   mainAxisSpacing: 8
+                   mainAxisSpacing: 8,
+                   childAspectRatio: 1, // സമചതുരം (Square)
                  ),
                  itemCount: _gallery.length,
                  itemBuilder: (context, index) {
@@ -518,6 +538,7 @@ class _WebConfigViewState extends State<WebConfigView> {
                          borderRadius: BorderRadius.circular(8),
                          child: Image.network(_gallery[index], fit: BoxFit.cover, errorBuilder: (c,e,s)=>Container(color: Colors.grey.shade200, child: const Icon(Icons.error))),
                        ),
+                       // ഡിലീറ്റ് ബട്ടൺ മുകളിൽ
                        Positioned(
                          top: 4, right: 4,
                          child: InkWell(
@@ -544,7 +565,12 @@ class _WebConfigViewState extends State<WebConfigView> {
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("Add Image URL"),
       content: TextField(controller: c),
-      actions: [ElevatedButton(onPressed: (){ if(c.text.isNotEmpty) { setState(()=>_gallery.add(c.text)); Navigator.pop(ctx); }}, child: const Text("Add"))],
+      actions: [ElevatedButton(onPressed: (){ 
+        if(c.text.isNotEmpty) { 
+          setState(()=>_gallery.add(_fixDriveLink(c.text))); 
+          Navigator.pop(ctx); 
+        }
+      }, child: const Text("Add"))],
     ));
   }
 }

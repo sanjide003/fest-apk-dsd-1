@@ -1,15 +1,18 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 2.1
-// Description: Students Tab ലിങ്ക് ചെയ്തു. ഹെഡർ, മെനു എന്നിവ പഴയത് പോലെ തന്നെ.
+// Version: 3.0
+// Description: Expanding Search Bar in Header. Search Query is managed globally.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
-import '../screens/students_tab.dart'; // റിയൽ ഫയൽ ഇമ്പോർട്ട് ചെയ്തു
+import '../screens/students_tab.dart';
 
-// Placeholder Widgets for remaining tabs
+// ആപ്പിലുടനീളം സെർച്ച് ലഭിക്കാൻ ഒരു ഗ്ലോബൽ നോട്ടിഫയർ
+final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
+
+// Placeholders
 class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
 class EventsTab extends StatelessWidget { const EventsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Events Tab Coming Soon")); }
 
@@ -22,12 +25,13 @@ class ResponsiveMainLayout extends StatefulWidget {
 class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with SingleTickerProviderStateMixin {
   int _idx = 0;
   bool _isMenuOpen = false;
+  bool _isSearchExpanded = false; // സെർച്ച് ബാർ തുറന്നിട്ടുണ്ടോ?
+  final _searchCtrl = TextEditingController();
   late AnimationController _menuAnimCtrl;
 
-  // സ്ക്രീനുകളുടെ ലിസ്റ്റ് (ഇവിടെ StudentsTab വർക്ക് ആകും)
   final List<Widget> _screens = [
     const DashboardTab(),
-    const StudentsTab(), // ഇവിടെയാണ് മാറ്റം
+    const StudentsTab(),
     const EventsTab(),
     const WebConfigView(),
     const SettingsView(),
@@ -51,11 +55,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   void _toggleMenu() {
     setState(() {
       _isMenuOpen = !_isMenuOpen;
-      if (_isMenuOpen) {
-        _menuAnimCtrl.forward();
-      } else {
-        _menuAnimCtrl.reverse();
-      }
+      if (_isMenuOpen) _menuAnimCtrl.forward(); else _menuAnimCtrl.reverse();
     });
   }
 
@@ -64,6 +64,10 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
+      // ടാബ് മാറുമ്പോൾ സെർച്ച് ക്ലിയർ ചെയ്യുന്നു
+      _isSearchExpanded = false;
+      _searchCtrl.clear();
+      globalSearchQuery.value = "";
     });
   }
 
@@ -75,13 +79,9 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
       backgroundColor: const Color(0xFFF8FAFC),
       body: Stack(
         children: [
-          // 1. MAIN CONTENT LAYER
           Column(
             children: [
-              // --- HEADER SECTION ---
               _buildHeader(isWeb),
-              
-              // --- BODY SECTION ---
               Expanded(
                 child: Row(
                   children: [
@@ -92,57 +92,35 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                         labelType: NavigationRailLabelType.all,
                         destinations: _titles.asMap().entries.map((e) => NavigationRailDestination(icon: Icon(_icons[e.key]), label: Text(e.value))).toList(),
                       ),
-                    
-                    // Main Screen Content
                     Expanded(child: _screens[_idx]),
                   ],
                 ),
               ),
             ],
           ),
-
-          // 2. DROPDOWN MENU OVERLAY (Mobile Only)
           if (_isMenuOpen && !isWeb)
             Positioned(
-              top: 70,
-              left: 10,
+              top: 70, left: 10,
               child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(12),
-                color: Colors.white,
+                elevation: 8, borderRadius: BorderRadius.circular(12), color: Colors.white,
                 child: Container(
-                  width: 250,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  width: 250, padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: List.generate(_titles.length, (i) {
-                      bool isSelected = _idx == i;
-                      return ListTile(
+                    children: List.generate(_titles.length, (i) => ListTile(
                         dense: true,
-                        leading: Icon(_icons[i], color: isSelected ? Colors.indigo : Colors.grey),
-                        title: Text(
-                          _titles[i], 
-                          style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? Colors.indigo : Colors.black87
-                          )
-                        ),
-                        selected: isSelected,
-                        selectedTileColor: Colors.indigo.shade50,
+                        leading: Icon(_icons[i], color: _idx == i ? Colors.indigo : Colors.grey),
+                        title: Text(_titles[i], style: TextStyle(fontWeight: _idx == i ? FontWeight.bold : FontWeight.normal, color: _idx == i ? Colors.indigo : Colors.black87)),
+                        selected: _idx == i, selectedTileColor: Colors.indigo.shade50,
                         onTap: () => _selectTab(i),
-                      );
-                    }),
+                      )),
                   ),
                 ),
               ),
             ),
-            
           if (_isMenuOpen && !isWeb)
-            Positioned(
-              top: 70, left: 270, right: 0, bottom: 0,
-              child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)),
-            )
+            Positioned(top: 70, left: 270, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
         ],
       ),
     );
@@ -151,10 +129,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   Widget _buildHeader(bool isWeb) {
     return Container(
       height: 70,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
-      ),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
       child: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance.collection('settings').doc('home_config').snapshots(),
         builder: (context, snap) {
@@ -166,52 +141,48 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
           return Row(
             children: [
               if (!isWeb)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: IconButton(
-                    icon: AnimatedIcon(
-                      icon: AnimatedIcons.menu_close,
-                      progress: _menuAnimCtrl,
-                      size: 28,
-                      color: Colors.indigo,
-                    ),
-                    onPressed: _toggleMenu,
-                  ),
-                ),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, size: 28, color: Colors.indigo), onPressed: _toggleMenu)),
 
               Padding(
                 padding: const EdgeInsets.only(left: 8, right: 16),
-                child: Text(
-                  _titles[_idx].toUpperCase(),
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1),
-                ),
+                child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
               ),
 
+              // CENTER: Fest Name OR Search Bar
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
-                    if(tagline.isNotEmpty)
-                      Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal, color: Colors.grey)),
-                  ],
-                ),
+                child: _isSearchExpanded
+                ? TextField(
+                    controller: _searchCtrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: "Search...",
+                      border: InputBorder.none,
+                      suffixIcon: IconButton(icon: const Icon(Icons.close), onPressed: (){
+                        setState(() { _isSearchExpanded = false; _searchCtrl.clear(); globalSearchQuery.value = ""; });
+                      })
+                    ),
+                    onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
+                      if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal, color: Colors.grey)),
+                    ],
+                  ),
               ),
+
+              // RIGHT: Search Icon & Logo
+              if (!_isSearchExpanded)
+                IconButton(
+                  icon: const Icon(Icons.search, color: Colors.grey),
+                  onPressed: () => setState(() => _isSearchExpanded = true),
+                ),
 
               if (logoUrl.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: CircleAvatar(
-                    backgroundColor: Colors.grey.shade100,
-                    backgroundImage: NetworkImage(logoUrl),
-                    radius: 20,
-                  ),
-                )
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 20))
               else
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Icon(Icons.school, color: Colors.grey, size: 30),
-                ),
+                const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Icon(Icons.school, color: Colors.grey, size: 30)),
             ],
           );
         },

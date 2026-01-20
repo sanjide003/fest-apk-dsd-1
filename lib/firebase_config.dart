@@ -1,3 +1,7 @@
+// File: lib/firebase_config.dart
+// Version: 1.0
+// Description: ഫയർബേസ് കണക്ഷൻ വിവരങ്ങൾ അടങ്ങുന്ന ഫയൽ.
+
 import 'package:firebase_core/firebase_core.dart';
 
 class DefaultFirebaseOptions {

@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 1.2
-// Description: വെബ്ബിലും മൊബൈലിലും പ്രവർത്തിക്കുന്ന ലേഔട്ട്. ഹെഡറിൽ ഫെസ്റ്റ് ലോഗോയും പേരും കാണിക്കുന്നു.
+// Version: 1.3
+// Description: സെൻട്രലൈസ്ഡ് ഹെഡർ (ഫെസ്റ്റ് പേര് + ടാഗ്‌ലൈൻ), ലെഫ്റ്റ് ടാബ് നെയിം, റൈറ്റ് ലോഗോ.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
 
-// Placeholder Widgets (ഇവ പിന്നീട് യഥാർത്ഥ ഫയലുകൾ വെച്ച് മാറ്റാം)
+// Placeholder Widgets
 class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
 class StudentsTab extends StatelessWidget { const StudentsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Students Tab Coming Soon")); }
 class EventsTab extends StatelessWidget { const EventsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Events Tab Coming Soon")); }
@@ -22,7 +22,6 @@ class ResponsiveMainLayout extends StatefulWidget {
 class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> {
   int _idx = 0;
   
-  // സ്ക്രീനുകളുടെ ലിസ്റ്റ്
   final List<Widget> _screens = [
     const DashboardTab(),
     const StudentsTab(),
@@ -40,74 +39,82 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        // ടാബിന്റെ പേര് ഇടതുവശത്ത് ചെറുതായി കാണിക്കുന്നു
-        title: Text(
-          _titles[_idx].toUpperCase(),
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Colors.indigo),
-        ),
-        // വലതുവശത്ത് ഫെസ്റ്റ് പേരും ലോഗോയും (Firebase-ൽ നിന്ന്)
-        actions: [
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('settings').doc('home_config').snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) return const SizedBox();
-              var data = snap.data!.exists ? snap.data!.data() as Map<String, dynamic> : {};
-              
-              String festName = data['festName1'] ?? 'FEST ADMIN';
-              String logoUrl = data['logoUrl'] ?? '';
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(70),
+        child: StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance.collection('settings').doc('home_config').snapshots(),
+          builder: (context, snap) {
+            var data = (snap.hasData && snap.data!.exists) ? snap.data!.data() as Map<String, dynamic> : {};
+            String festName = data['festName1'] ?? 'FEST ADMIN';
+            String tagline = data['tagline'] ?? '';
+            String logoUrl = data['logoUrl'] ?? '';
 
-              return Row(
+            return AppBar(
+              backgroundColor: Colors.white,
+              elevation: 1,
+              centerTitle: true,
+              
+              // ഇടതുവശത്ത് ടാബ് പേര്
+              leadingWidth: 120,
+              leading: Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    _titles[_idx].toUpperCase(),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.indigo, letterSpacing: 1),
+                  ),
+                ),
+              ),
+
+              // നടുവിൽ ഫെസ്റ്റ് പേരും ടാഗ്‌ലൈനും
+              title: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(festName, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-                  const SizedBox(width: 12),
-                  if (logoUrl.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 16),
-                      child: CircleAvatar(
-                        backgroundColor: Colors.grey.shade200,
-                        backgroundImage: NetworkImage(logoUrl),
-                        radius: 18,
-                      ),
-                    )
-                  else
-                    const Padding(
-                      padding: EdgeInsets.only(right: 16),
-                      child: Icon(Icons.school, color: Colors.grey),
-                    ),
+                  Text(festName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
+                  if(tagline.isNotEmpty)
+                    Text(tagline, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal, color: Colors.grey)),
                 ],
-              );
-            },
-          )
-        ],
+              ),
+
+              // വലതുവശത്ത് ലോഗോ
+              actions: [
+                if (logoUrl.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: CircleAvatar(
+                      backgroundColor: Colors.grey.shade100,
+                      backgroundImage: NetworkImage(logoUrl),
+                      radius: 20,
+                    ),
+                  )
+                else
+                  const Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Icon(Icons.school, color: Colors.grey, size: 30),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
-      drawer: !isWeb ? _buildDrawer() : null, // മൊബൈലിൽ മാത്രം ഡ്രോയർ
+      
+      drawer: !isWeb ? _buildDrawer() : null,
+      
       body: Row(
         children: [
-          // വെബ്ബിൽ സൈഡ് മെനു (Optional - ഇവിടെ ലളിതമായ ഡിസൈൻ നൽകുന്നു)
           if (isWeb)
             NavigationRail(
               selectedIndex: _idx,
               onDestinationSelected: (i) => setState(() => _idx = i),
               labelType: NavigationRailLabelType.all,
-              destinations: _titles.asMap().entries.map((e) {
-                return NavigationRailDestination(
-                  icon: Icon(_icons[e.key]),
-                  label: Text(e.value),
-                );
-              }).toList(),
+              destinations: _titles.asMap().entries.map((e) => NavigationRailDestination(icon: Icon(_icons[e.key]), label: Text(e.value))).toList(),
             ),
-            
-          // പ്രധാന കണ്ടെന്റ്
           Expanded(child: _screens[_idx]),
         ],
       ),
     );
   }
 
-  // മൊബൈൽ ഡ്രോയർ
   Widget _buildDrawer() {
     return Drawer(
       child: ListView(

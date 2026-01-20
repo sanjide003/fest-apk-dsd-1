@@ -1,16 +1,16 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 2.0
-// Description: സ്മൂത്ത് ആനിമേറ്റഡ് ഹാംബർഗർ മെനു, കസ്റ്റം ഡ്രോപ്പ് ഡൗൺ, സെൻട്രലൈസ്ഡ് ഹെഡർ.
+// Version: 2.1
+// Description: Students Tab ലിങ്ക് ചെയ്തു. ഹെഡർ, മെനു എന്നിവ പഴയത് പോലെ തന്നെ.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
+import '../screens/students_tab.dart'; // റിയൽ ഫയൽ ഇമ്പോർട്ട് ചെയ്തു
 
-// Placeholder Widgets (ഇവ പിന്നീട് യഥാർത്ഥ ഫയലുകൾ വെച്ച് മാറ്റാം)
+// Placeholder Widgets for remaining tabs
 class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
-class StudentsTab extends StatelessWidget { const StudentsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Students Tab Coming Soon")); }
 class EventsTab extends StatelessWidget { const EventsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Events Tab Coming Soon")); }
 
 class ResponsiveMainLayout extends StatefulWidget {
@@ -21,12 +21,13 @@ class ResponsiveMainLayout extends StatefulWidget {
 
 class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with SingleTickerProviderStateMixin {
   int _idx = 0;
-  bool _isMenuOpen = false; // മെനു തുറന്നിട്ടുണ്ടോ എന്ന് നോക്കാൻ
-  late AnimationController _menuAnimCtrl; // ഹാംബർഗർ ആനിമേഷൻ കൺട്രോളർ
+  bool _isMenuOpen = false;
+  late AnimationController _menuAnimCtrl;
 
+  // സ്ക്രീനുകളുടെ ലിസ്റ്റ് (ഇവിടെ StudentsTab വർക്ക് ആകും)
   final List<Widget> _screens = [
     const DashboardTab(),
-    const StudentsTab(),
+    const StudentsTab(), // ഇവിടെയാണ് മാറ്റം
     const EventsTab(),
     const WebConfigView(),
     const SettingsView(),
@@ -38,7 +39,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   @override
   void initState() {
     super.initState();
-    // ആനിമേഷൻ കൺട്രോളർ സെറ്റ് ചെയ്യുന്നു (300ms സമയം)
     _menuAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
   }
 
@@ -48,19 +48,17 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
     super.dispose();
   }
 
-  // മെനു തുറക്കാനും അടയ്ക്കാനും ഉള്ള ഫംഗ്ഷൻ
   void _toggleMenu() {
     setState(() {
       _isMenuOpen = !_isMenuOpen;
       if (_isMenuOpen) {
-        _menuAnimCtrl.forward(); // Play Animation (Menu -> X)
+        _menuAnimCtrl.forward();
       } else {
-        _menuAnimCtrl.reverse(); // Reverse Animation (X -> Menu)
+        _menuAnimCtrl.reverse();
       }
     });
   }
 
-  // ടാബ് മാറ്റുമ്പോൾ മെനു അടയ്ക്കുന്നു
   void _selectTab(int index) {
     setState(() {
       _idx = index;
@@ -87,7 +85,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
               Expanded(
                 child: Row(
                   children: [
-                    // വെബ്ബിൽ മാത്രം സൈഡ് ബാർ (Optional)
                     if (isWeb)
                       NavigationRail(
                         selectedIndex: _idx,
@@ -105,21 +102,20 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
           ),
 
           // 2. DROPDOWN MENU OVERLAY (Mobile Only)
-          // മെനു തുറക്കുമ്പോൾ മാത്രം ഇത് കാണിക്കും
           if (_isMenuOpen && !isWeb)
             Positioned(
-              top: 70, // ഹെഡറിന് തൊട്ടു താഴെ
+              top: 70,
               left: 10,
               child: Material(
                 elevation: 8,
                 borderRadius: BorderRadius.circular(12),
                 color: Colors.white,
                 child: Container(
-                  width: 250, // ഡ്രോപ്പ് ഡൗൺ വീതി
+                  width: 250,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min, // ലിസ്റ്റിന്റെ നീളം മാത്രം എടുക്കുക
+                    mainAxisSize: MainAxisSize.min,
                     children: List.generate(_titles.length, (i) {
                       bool isSelected = _idx == i;
                       return ListTile(
@@ -142,7 +138,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
               ),
             ),
             
-          // പുറത്ത് ക്ലിക്ക് ചെയ്താൽ മെനു പോകാൻ ഒരു സുതാര്യമായ ലെയർ (Optional UX enhancement)
           if (_isMenuOpen && !isWeb)
             Positioned(
               top: 70, left: 270, right: 0, bottom: 0,
@@ -153,7 +148,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
     );
   }
 
-  // --- HEADER WIDGET ---
   Widget _buildHeader(bool isWeb) {
     return Container(
       height: 70,
@@ -171,13 +165,12 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
 
           return Row(
             children: [
-              // 1. HAMBURGER MENU (Left) - Only on Mobile
               if (!isWeb)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: IconButton(
                     icon: AnimatedIcon(
-                      icon: AnimatedIcons.menu_close, // Menu മാറുന്ന X
+                      icon: AnimatedIcons.menu_close,
                       progress: _menuAnimCtrl,
                       size: 28,
                       color: Colors.indigo,
@@ -186,7 +179,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                   ),
                 ),
 
-              // 2. TAB NAME (Small, Left side)
               Padding(
                 padding: const EdgeInsets.only(left: 8, right: 16),
                 child: Text(
@@ -195,7 +187,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                 ),
               ),
 
-              // 3. CENTER INFO (Fest Name & Tagline)
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -207,7 +198,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                 ),
               ),
 
-              // 4. LOGO (Right)
               if (logoUrl.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),

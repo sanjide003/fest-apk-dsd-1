@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 8.0
-// Description: Fixed Mobile Header Issue using SafeArea.
+// Version: 9.0
+// Description: Added 'Registrations' Tab to the navigation menu.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +11,7 @@ import '../screens/students_tab.dart';
 import '../screens/events_tab.dart';
 import '../screens/dashboard_tab.dart';
 import '../screens/publish_tab.dart';
+import '../screens/registrations_tab.dart'; // IMPORTED
 
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
@@ -31,17 +32,38 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   late AnimationController _searchAnimCtrl;
   late Animation<double> _searchWidthAnim;
 
+  // സ്ക്രീനുകളുടെ ലിസ്റ്റ് (Registrations ഉൾപ്പെടുത്തി)
   final List<Widget> _screens = [
     const DashboardTab(),
     const StudentsTab(),
     const EventsTab(),
+    const RegistrationsTab(), // NEW TAB
     const PublishTab(),
     const WebConfigView(),
     const SettingsView(),
   ];
 
-  final List<String> _titles = ["Dashboard", "Students", "Events", "Publish", "Web Config", "Settings"];
-  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.emoji_events_outlined, Icons.language, Icons.settings];
+  // മെനു പേരുകൾ
+  final List<String> _titles = [
+    "Dashboard", 
+    "Students", 
+    "Events", 
+    "Registrations", // NEW TITLE
+    "Publish", 
+    "Web Config", 
+    "Settings"
+  ];
+
+  // ഐക്കണുകൾ
+  final List<IconData> _icons = [
+    Icons.dashboard, 
+    Icons.people, 
+    Icons.emoji_events, 
+    Icons.how_to_reg, // Icon for Registrations
+    Icons.emoji_events_outlined, 
+    Icons.language, 
+    Icons.settings
+  ];
 
   @override
   void initState() {
@@ -98,13 +120,12 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      // SafeArea ഉപയോഗിക്കുന്നതിലൂടെ Status Bar-ന് താഴെ കണ്ടന്റ് വരുന്നു
       body: SafeArea(
         child: Stack(
           children: [
             Column(
               children: [
-                // FLOATING HEADER
+                // HEADER
                 _buildFloatingHeader(isWeb),
                 
                 // BODY
@@ -125,7 +146,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
               ],
             ),
             
-            // DROPDOWN MENU
+            // MOBILE DROPDOWN MENU
             if (_isMenuOpen && !isWeb)
               Positioned(
                 top: 80,
@@ -150,14 +171,16 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
               
             if (_isMenuOpen && !isWeb)
               Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
-          ],
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildFloatingHeader(bool isWeb) {
-    bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 3); // Students, Events, Publish
+    // Search is allowed in Students(1), Events(2), Publish(4)
+    // Note: Indexes shifted because of new tab.
+    // 0:Dash, 1:Students, 2:Events, 3:Regs, 4:Publish
+    bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 4); 
 
     return Container(
       height: 60,
@@ -179,21 +202,21 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
             children: [
               const SizedBox(width: 8),
               
-              // 1. HAMBURGER (Always Visible on Mobile)
+              // 1. HAMBURGER
               if (!isWeb)
                 IconButton(
                   icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), 
                   onPressed: _toggleMenu
                 ),
 
-              // 2. MIDDLE SECTION (Swaps between Title+TabName and SearchBar)
+              // 2. MIDDLE SECTION
               Expanded(
                 child: _isSearchExpanded
-                  ? _buildSearchBar() // Search Bar Takes Full Space
-                  : _buildNormalHeaderContent(festName, tagline, allowSearch), // Title & Tab Name
+                  ? _buildSearchBar() 
+                  : _buildNormalHeaderContent(festName, tagline, allowSearch),
               ),
 
-              // 3. LOGO (Always Visible)
+              // 3. LOGO
               if (logoUrl.isNotEmpty)
                 Padding(padding: const EdgeInsets.only(right: 12, left: 8), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
               else
@@ -205,7 +228,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
     );
   }
 
-  // സാധാരണ ഹെഡർ (സെർച്ച് അല്ലാത്തപ്പോൾ)
   Widget _buildNormalHeaderContent(String festName, String tagline, bool allowSearch) {
     return Row(
       children: [
@@ -215,7 +237,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
         ),
         
-        // Fest Title (Center)
+        // Center Title
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -226,7 +248,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           ),
         ),
 
-        // Search Icon (Button to Expand)
+        // Search Icon
         if (allowSearch)
           IconButton(
             icon: const Icon(Icons.search, color: Colors.grey),
@@ -237,7 +259,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
     );
   }
 
-  // എക്സ്പാൻഡ് ചെയ്ത സെർച്ച് ബാർ
   Widget _buildSearchBar() {
     return Container(
       height: 40,
@@ -255,7 +276,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           isDense: true,
-          // Close Button inside Search Bar
           suffixIcon: IconButton(
             icon: const Icon(Icons.close, size: 20, color: Colors.grey),
             onPressed: _closeSearch,

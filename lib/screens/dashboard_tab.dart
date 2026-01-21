@@ -1,105 +1,328 @@
+// File: lib/screens/dashboard_tab.dart
+// Version: 1.0
+// Description: Live Scoreboard, Summary Cards, and Detailed breakdown per Team/Category.
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class DashboardTab extends StatelessWidget {
+class DashboardTab extends StatefulWidget {
   const DashboardTab({super.key});
+  @override
+  State<DashboardTab> createState() => _DashboardTabState();
+}
+
+class _DashboardTabState extends State<DashboardTab> {
+  final db = FirebaseFirestore.instance;
+
+  // Data Containers
+  List<DocumentSnapshot> _students = [];
+  List<DocumentSnapshot> _events = [];
+  List<DocumentSnapshot> _results = [];
+  List<String> _teams = [];
+  List<String> _categories = [];
+  Map<String, dynamic> _teamDetails = {}; // Colors etc.
+
+  // Calculated Stats
+  Map<String, Map<String, dynamic>> _teamScores = {}; // Team -> {pts, 1st, 2nd, 3rd}
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initListeners();
+  }
+
+  void _initListeners() {
+    // 1. Settings (Teams & Categories)
+    db.collection('settings').doc('general').snapshots().listen((snap) {
+      if (snap.exists && mounted) {
+        setState(() {
+          _teams = List<String>.from(snap.data()?['teams'] ?? []);
+          _categories = List<String>.from(snap.data()?['categories'] ?? []);
+          _teamDetails = snap.data()?['teamDetails'] ?? {};
+        });
+        _calculateScores();
+      }
+    });
+
+    // 2. Students
+    db.collection('students').snapshots().listen((snap) {
+      if(mounted) {
+        setState(() => _students = snap.docs);
+        _calculateScores();
+      }
+    });
+
+    // 3. Events
+    db.collection('events').snapshots().listen((snap) {
+      if(mounted) {
+        setState(() => _events = snap.docs);
+        _calculateScores();
+      }
+    });
+
+    // 4. Results
+    db.collection('results').snapshots().listen((snap) {
+      if(mounted) {
+        setState(() => _results = snap.docs);
+        _calculateScores();
+      }
+    });
+  }
+
+  void _calculateScores() {
+    // Reset Scores
+    Map<String, Map<String, dynamic>> scores = {};
+    for (var t in _teams) {
+      scores[t] = {'points': 0, '1st': 0, '2nd': 0, '3rd': 0};
+    }
+
+    // Process Results
+    for (var res in _results) {
+      var data = res.data() as Map<String, dynamic>;
+      var pts = data['points'] ?? {'first': 5, 'second': 3, 'third': 1}; // Fallback default
+      var winners = data['winners'] ?? {};
+
+      // Helper to award points
+      void award(dynamic winnerId, int p, String rankKey) {
+        if (winnerId == null) return;
+        String teamName = "";
+        
+        // Find Team from Student ID or if it's a Team Name (Group Event)
+        // Check if winnerId matches a known team name directly (Group event logic)
+        if (_teams.contains(winnerId)) {
+          teamName = winnerId;
+        } else {
+          // Look up student
+          try {
+            var student = _students.firstWhere((s) => s.id == winnerId);
+            teamName = student['teamId'];
+          } catch (e) {
+            // Student deleted or not found
+            return;
+          }
+        }
+
+        if (scores.containsKey(teamName)) {
+          scores[teamName]!['points'] += p;
+          scores[teamName]![rankKey] += 1;
+        }
+      }
+
+      award(winners['first'], pts['first'] is int ? pts['first'] : 5, '1st');
+      award(winners['second'], pts['second'] is int ? pts['second'] : 3, '2nd');
+      award(winners['third'], pts['third'] is int ? pts['third'] : 1, '3rd');
+    }
+
+    if (mounted) {
+      setState(() {
+        _teamScores = scores;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final db = FirebaseFirestore.instance;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. SUMMARY CARDS
+            _buildSummaryGrid(),
+            const SizedBox(height: 20),
+
+            // 2. LIVE SCOREBOARD
+            const Text("Live House Standings", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const SizedBox(height: 10),
+            _buildScoreboard(),
+            const SizedBox(height: 24),
+
+            // 3. DETAILED BREAKDOWN
+            const Text("Detailed Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const SizedBox(height: 10),
+            _buildDetailedStats(),
+            
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- 1. SUMMARY GRID ---
+  Widget _buildSummaryGrid() {
+    int totalStudents = _students.length;
+    int totalEvents = _events.length;
+    int published = _results.length;
+    int pending = totalEvents - published;
+
+    return GridView.count(
+      crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 2,
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      shrinkWrap: true,
+      childAspectRatio: 1.6,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _statCard("Total Students", "$totalStudents", Icons.people, Colors.blue),
+        _statCard("Total Events", "$totalEvents", Icons.emoji_events, Colors.purple),
+        _statCard("Published", "$published", Icons.check_circle, Colors.green),
+        _statCard("Pending", "$pending", Icons.pending_actions, Colors.orange),
+      ],
+    );
+  }
+
+  Widget _statCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(children: [
-            Expanded(child: _countCard(db, 'students', 'Students', Colors.blue, Icons.people)),
-            const SizedBox(width: 10),
-            Expanded(child: _countCard(db, 'events', 'Events', Colors.orange, Icons.event)),
-            const SizedBox(width: 10),
-            Expanded(child: _countCard(db, 'results', 'Published', Colors.green, Icons.check_circle)),
-          ]),
-          const SizedBox(height: 20),
-          const Text("Live House Standings", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          _buildLiveScoreboard(db),
+          Icon(icon, color: color, size: 28),
+          const SizedBox(height: 8),
+          Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ],
       ),
     );
   }
 
-  // ലൈവ് സ്കോർ കണക്കാക്കുന്ന ലോജിക് (Result Collection അടിസ്ഥാനമാക്കി)
-  Widget _buildLiveScoreboard(FirebaseFirestore db) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: db.collection('teams').snapshots(),
-      builder: (context, teamSnap) {
-        if (!teamSnap.hasData) return const LinearProgressIndicator();
+  // --- 2. LIVE SCOREBOARD ---
+  Widget _buildScoreboard() {
+    // Sort teams by points
+    var sortedTeams = _teamScores.entries.toList()..sort((a, b) => b.value['points'].compareTo(a.value['points']));
+
+    if (sortedTeams.isEmpty) return const Text("No teams configured.");
+
+    return Column(
+      children: sortedTeams.map((entry) {
+        String teamName = entry.key;
+        var stats = entry.value;
+        int colorVal = (_teamDetails[teamName]?['color']) ?? 0xFF2196F3;
         
-        return StreamBuilder<QuerySnapshot>(
-          stream: db.collection('results').where('status', isEqualTo: 'published').snapshots(),
-          builder: (context, resSnap) {
-            if (!resSnap.hasData) return const SizedBox();
+        bool isLeader = sortedTeams.indexOf(entry) == 0 && stats['points'] > 0;
 
-            // സ്കോർ കാൽക്കുലേഷൻ
-            Map<String, int> scores = {};
-            // ടീമുകളെ 0 സ്കോറിൽ Initialize ചെയ്യുന്നു
-            for (var t in teamSnap.data!.docs) { scores[t['name']] = 0; }
-
-            for (var r in resSnap.data!.docs) {
-              var data = r.data() as Map<String, dynamic>;
-              var pts = data['points'] ?? {'first': 0, 'second': 0, 'third': 0};
-              var winners = data['winners'] ?? {};
-              
-              // Helper to add points based on winner format (String or List)
-              void addPts(dynamic winnerData, int p) {
-                if (winnerData == null) return;
-                List wList = (winnerData is List) ? winnerData : [winnerData];
-                for (var w in wList) {
-                   // ഗ്രൂപ്പ് ഇവന്റ് ആണെങ്കിൽ ടീം പേര് നേരിട്ടുണ്ടാകും, അല്ലെങ്കിൽ സ്റ്റുഡന്റ് ഐഡി വെച്ച് ടീം കണ്ടുപിടിക്കണം.
-                   // ലളിതമാക്കാൻ: റിസൾട്ട് സേവ് ചെയ്യുമ്പോൾ നമ്മൾ ടീം നെയിം കൂടി സേവ് ചെയ്യുന്നുണ്ടെന്ന് ഉറപ്പാക്കണം.
-                   // ഇവിടെ ലളിതമായ ടീം നെയിം മാച്ചിംഗ് ഉപയോഗിക്കുന്നു.
-                   if (scores.containsKey(w)) {
-                     scores[w] = (scores[w] ?? 0) + p;
-                   }
-                }
-              }
-
-              addPts(winners['first'], pts['first']);
-              addPts(winners['second'], pts['second']);
-              addPts(winners['third'], pts['third']);
-            }
-
-            // സോർട്ടിംഗ്
-            var sortedTeams = scores.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-
-            return Column(
-              children: sortedTeams.map((e) {
-                var teamData = teamSnap.data!.docs.firstWhere((t) => t['name'] == e.key, orElse: () => teamSnap.data!.docs.first);
-                Color tColor = Color(teamData['color']);
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: CircleAvatar(backgroundColor: tColor, child: Text(e.key[0], style: const TextStyle(color: Colors.white))),
-                    title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    trailing: Text("${e.value} Pts", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+        return Card(
+          elevation: isLeader ? 4 : 1,
+          shadowColor: isLeader ? Colors.amber.withOpacity(0.4) : null,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: isLeader ? const BorderSide(color: Colors.amber, width: 1.5) : BorderSide.none),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // Rank/Icon
+                isLeader 
+                  ? const Icon(Icons.emoji_events, color: Colors.amber, size: 32)
+                  : CircleAvatar(backgroundColor: Color(colorVal), radius: 6),
+                const SizedBox(width: 16),
+                
+                // Name & Medal Counts
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(teamName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _medalCount("🥇", stats['1st']),
+                          const SizedBox(width: 10),
+                          _medalCount("🥈", stats['2nd']),
+                          const SizedBox(width: 10),
+                          _medalCount("🥉", stats['3rd']),
+                        ],
+                      )
+                    ],
                   ),
-                );
-              }).toList(),
-            );
-          },
+                ),
+                
+                // Total Points
+                Text("${stats['points']} Pts", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Color(colorVal)))
+              ],
+            ),
+          ),
         );
-      },
+      }).toList(),
     );
   }
 
-  Widget _countCard(FirebaseFirestore db, String coll, String label, Color color, IconData icon) {
-    return StreamBuilder<AggregateQuerySnapshot>(
-      stream: db.collection(coll).count().get().asStream(),
-      builder: (c, s) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.3))),
-        child: Column(children: [Icon(icon, color: color), const SizedBox(height: 5), Text(s.hasData ? "${s.data!.count}" : "...", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)), Text(label, style: TextStyle(fontSize: 10, color: color))]),
-      ),
+  Widget _medalCount(String icon, int count) {
+    return Text("$icon $count", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54));
+  }
+
+  // --- 3. DETAILED STATS (NESTED) ---
+  Widget _buildDetailedStats() {
+    return Column(
+      children: _teams.map((team) {
+        int colorVal = (_teamDetails[team]?['color']) ?? 0xFF9E9E9E;
+        // Count total students in this team
+        int teamTotalStuds = _students.where((s) => s['teamId'] == team).length;
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ExpansionTile(
+            leading: CircleAvatar(backgroundColor: Color(colorVal), child: Text(team[0], style: const TextStyle(color: Colors.white))),
+            title: Text(team, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("$teamTotalStuds Students registered"),
+            childrenPadding: const EdgeInsets.all(16),
+            children: [
+              // Table Header
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Category", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    Text("Students", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ],
+                ),
+              ),
+              const Divider(),
+              
+              // Categories breakdown
+              ..._categories.map((cat) {
+                // Count students in this Team + Category
+                int count = _students.where((s) => s['teamId'] == team && s['categoryId'] == cat).length;
+                if (count == 0) return const SizedBox();
+
+                // Check gender split (Optional display)
+                int boys = _students.where((s) => s['teamId'] == team && s['categoryId'] == cat && (s.data() as Map).containsKey('gender') && s['gender'] == 'Male').length;
+                int girls = _students.where((s) => s['teamId'] == team && s['categoryId'] == cat && (s.data() as Map).containsKey('gender') && s['gender'] == 'Female').length;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(cat, style: const TextStyle(fontSize: 13)),
+                      Row(
+                        children: [
+                          if(boys > 0) Text("M:$boys ", style: TextStyle(fontSize: 11, color: Colors.blue.shade700)),
+                          if(girls > 0) Text("F:$girls ", style: TextStyle(fontSize: 11, color: Colors.pink.shade700)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                            child: Text("$count", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          )
+                        ],
+                      )
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }

@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 7.0
-// Description: Floating Header where Search Expands to fill space between Hamburger and Logo (Hiding Title & Tab Name).
+// Version: 8.0
+// Description: Fixed Mobile Header Issue using SafeArea.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -28,6 +28,8 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   final FocusNode _searchFocus = FocusNode();
   
   late AnimationController _menuAnimCtrl;
+  late AnimationController _searchAnimCtrl;
+  late Animation<double> _searchWidthAnim;
 
   final List<Widget> _screens = [
     const DashboardTab(),
@@ -45,11 +47,14 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   void initState() {
     super.initState();
     _menuAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _searchAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _searchWidthAnim = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _searchAnimCtrl, curve: Curves.easeInOut));
   }
 
   @override
   void dispose() {
     _menuAnimCtrl.dispose();
+    _searchAnimCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -93,57 +98,60 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // FLOATING HEADER
-              _buildFloatingHeader(isWeb),
-              
-              // BODY
-              Expanded(
-                child: Row(
-                  children: [
-                    if (isWeb)
-                      NavigationRail(
-                        selectedIndex: _idx,
-                        onDestinationSelected: _selectTab,
-                        labelType: NavigationRailLabelType.all,
-                        destinations: _titles.asMap().entries.map((e) => NavigationRailDestination(icon: Icon(_icons[e.key]), label: Text(e.value))).toList(),
-                      ),
-                    Expanded(child: _screens[_idx]),
-                  ],
+      // SafeArea ഉപയോഗിക്കുന്നതിലൂടെ Status Bar-ന് താഴെ കണ്ടന്റ് വരുന്നു
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                // FLOATING HEADER
+                _buildFloatingHeader(isWeb),
+                
+                // BODY
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (isWeb)
+                        NavigationRail(
+                          selectedIndex: _idx,
+                          onDestinationSelected: _selectTab,
+                          labelType: NavigationRailLabelType.all,
+                          destinations: _titles.asMap().entries.map((e) => NavigationRailDestination(icon: Icon(_icons[e.key]), label: Text(e.value))).toList(),
+                        ),
+                      Expanded(child: _screens[_idx]),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          
-          // DROPDOWN MENU
-          if (_isMenuOpen && !isWeb)
-            Positioned(
-              top: 80,
-              left: 16,
-              child: Material(
-                elevation: 8, borderRadius: BorderRadius.circular(16), color: Colors.white,
-                child: Container(
-                  width: 200, padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(_titles.length, (i) => ListTile(
-                        dense: true,
-                        leading: Icon(_icons[i], color: _idx == i ? Colors.indigo : Colors.grey),
-                        title: Text(_titles[i], style: TextStyle(fontWeight: _idx == i ? FontWeight.bold : FontWeight.normal, color: _idx == i ? Colors.indigo : Colors.black87)),
-                        selected: _idx == i, selectedTileColor: Colors.indigo.shade50,
-                        onTap: () => _selectTab(i),
-                      )),
+              ],
+            ),
+            
+            // DROPDOWN MENU
+            if (_isMenuOpen && !isWeb)
+              Positioned(
+                top: 80,
+                left: 16,
+                child: Material(
+                  elevation: 8, borderRadius: BorderRadius.circular(16), color: Colors.white,
+                  child: Container(
+                    width: 200, padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(_titles.length, (i) => ListTile(
+                          dense: true,
+                          leading: Icon(_icons[i], color: _idx == i ? Colors.indigo : Colors.grey),
+                          title: Text(_titles[i], style: TextStyle(fontWeight: _idx == i ? FontWeight.bold : FontWeight.normal, color: _idx == i ? Colors.indigo : Colors.black87)),
+                          selected: _idx == i, selectedTileColor: Colors.indigo.shade50,
+                          onTap: () => _selectTab(i),
+                        )),
+                    ),
                   ),
                 ),
               ),
-            ),
-            
-          if (_isMenuOpen && !isWeb)
-            Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
-        ],
+              
+            if (_isMenuOpen && !isWeb)
+              Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
+          ],
+        ),
       ),
     );
   }

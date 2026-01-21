@@ -15,6 +15,10 @@ dependencies:
   firebase_auth: ^4.16.0
   # Icons
   cupertino_icons: ^1.0.2
+  # File Handling
+  path_provider: ^2.1.1
+  open_file: ^3.3.2 # To open the downloaded file on Android
+  universal_html: ^2.2.4 # Safe html import
 
 dev_dependencies:
   flutter_test:

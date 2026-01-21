@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 3.1
-// Description: സെർച്ച് ബാർ Students ടാബിൽ മാത്രം കാണിക്കുന്നു.
+// Version: 3.2
+// Description: Events Tab ലിങ്ക് ചെയ്തു. Dashboard ഒഴികെ ബാക്കി എല്ലാം ഇപ്പോൾ പ്രവർത്തനസജ്ജമാണ്.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -8,13 +8,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
 import '../screens/students_tab.dart';
+import '../screens/events_tab.dart'; // Events Tab ഇമ്പോർട്ട് ചെയ്തു
 
 // Global Search Notifier
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
-// Placeholders
+// Dashboard മാത്രം ഇപ്പോൾ Placeholder ആണ്
 class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
-class EventsTab extends StatelessWidget { const EventsTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Events Tab Coming Soon")); }
 
 class ResponsiveMainLayout extends StatefulWidget {
   const ResponsiveMainLayout({super.key});
@@ -29,10 +29,11 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   final _searchCtrl = TextEditingController();
   late AnimationController _menuAnimCtrl;
 
+  // സ്ക്രീനുകൾ (EventsTab ഇപ്പോൾ റിയൽ ഫയൽ ആണ്)
   final List<Widget> _screens = [
     const DashboardTab(),
     const StudentsTab(),
-    const EventsTab(),
+    const EventsTab(), 
     const WebConfigView(),
     const SettingsView(),
   ];
@@ -64,7 +65,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
-      // ടാബ് മാറുമ്പോൾ സെർച്ച് റീസെറ്റ് ചെയ്യുന്നു
       _isSearchExpanded = false;
       _searchCtrl.clear();
       globalSearchQuery.value = "";
@@ -171,7 +171,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                   ),
               ),
 
-              // SEARCH ICON (Only visible if idx == 1 i.e., Students Tab)
               if (!_isSearchExpanded && _idx == 1)
                 IconButton(
                   icon: const Icon(Icons.search, color: Colors.grey),

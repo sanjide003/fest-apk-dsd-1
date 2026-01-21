@@ -1,6 +1,6 @@
 // File: lib/screens/publish_tab.dart
 // Version: 1.0
-// Description: Result Entry & Publishing System. Handles Single (Student Select) & Group (Team Select).
+// Description: Result Publishing System (Pending, Published, Simulation). No Photo Upload.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,25 +20,36 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
   List<DocumentSnapshot> _results = [];
   List<DocumentSnapshot> _students = [];
   List<String> _teams = [];
-  bool _isLoading = true;
+  List<String> _categories = [];
+  
+  // Filter for Pending Tab
+  String? _filterCategory;
+
+  // Simulation State
+  Map<String, int> _simulatedExtraPoints = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this); // 3 Tabs
     _initData();
   }
 
   void _initData() {
-    // 1. Teams from Settings
+    // 1. Settings (Teams & Categories)
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
-        setState(() => _teams = List<String>.from(snap.data()?['teams'] ?? []));
+        setState(() {
+          _teams = List<String>.from(snap.data()?['teams'] ?? []);
+          _categories = List<String>.from(snap.data()?['categories'] ?? []);
+          // Init Simulation Map
+          for (var t in _teams) { _simulatedExtraPoints[t] = 0; }
+        });
       }
     });
 
     // 2. Events
-    db.collection('events').snapshots().listen((snap) {
+    db.collection('events').orderBy('createdAt').snapshots().listen((snap) {
       if(mounted) setState(() => _events = snap.docs);
     });
 
@@ -47,9 +58,9 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
       if(mounted) setState(() => _results = snap.docs);
     });
 
-    // 4. Students (For Single Event Selection)
-    db.collection('students').snapshots().listen((snap) {
-      if(mounted) setState(() { _students = snap.docs; _isLoading = false; });
+    // 4. Students
+    db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
+      if(mounted) setState(() => _students = snap.docs);
     });
   }
 
@@ -61,296 +72,359 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    // Separate Pending & Published
-    List<String> publishedIds = _results.map((r) => r.id).toList();
-    List<DocumentSnapshot> pendingEvents = _events.where((e) => !publishedIds.contains(e.id)).toList();
-    List<DocumentSnapshot> publishedEvents = _events.where((e) => publishedIds.contains(e.id)).toList();
-
-    // Sort published by timestamp (latest first) logic requires joining, 
-    // simpler to just list them. We can refine sorting later.
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: TabBar(
-        controller: _tabController,
-        labelColor: Colors.indigo,
-        unselectedLabelColor: Colors.grey,
-        indicatorColor: Colors.indigo,
-        tabs: [
-          Tab(text: "PENDING (${pendingEvents.length})"),
-          Tab(text: "PUBLISHED (${publishedEvents.length})"),
-        ],
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(50),
+        child: Container(
+          color: Colors.white,
+          child: TabBar(
+            controller: _tabController,
+            labelColor: Colors.indigo,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.indigo,
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(text: "PENDING"),
+              Tab(text: "PUBLISHED"),
+              Tab(text: "SIMULATION"),
+            ],
+          ),
+        ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildPendingList(pendingEvents),
-          _buildPublishedList(publishedEvents),
+          _buildPendingTab(),
+          _buildPublishedTab(),
+          _buildSimulationTab(),
         ],
       ),
     );
   }
 
-  // --- 1. PENDING LIST ---
-  Widget _buildPendingList(List<DocumentSnapshot> events) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (events.isEmpty) return const Center(child: Text("No pending events! All published.", style: TextStyle(color: Colors.green)));
+  // ==============================================================================
+  // TAB 1: PENDING EVENTS (ENTRY)
+  // ==============================================================================
+  Widget _buildPendingTab() {
+    // Logic: Find events that are NOT in results
+    List<String> publishedIds = _results.map((r) => r.id).toList();
+    List<DocumentSnapshot> pending = _events.where((e) => !publishedIds.contains(e.id)).toList();
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: events.length,
-      itemBuilder: (context, index) {
-        var data = events[index].data() as Map<String, dynamic>;
-        bool isGroup = data['type'] == 'group';
-        
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isGroup ? Colors.purple.shade50 : Colors.blue.shade50,
-              child: Icon(isGroup ? Icons.groups : Icons.person, color: isGroup ? Colors.purple : Colors.blue),
-            ),
-            title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text("${data['category']} • ${data['stage'] ?? 'Off-Stage'}"),
-            trailing: ElevatedButton.icon(
-              onPressed: () => _openPublishDialog(events[index].id, data),
-              icon: const Icon(Icons.emoji_events, size: 16),
-              label: const Text("Publish"),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-            ),
-          ),
-        );
-      },
-    );
-  }
+    // Apply Category Filter
+    if (_filterCategory != null) {
+      pending = pending.where((e) => e['category'] == _filterCategory).toList();
+    }
 
-  // --- 2. PUBLISHED LIST ---
-  Widget _buildPublishedList(List<DocumentSnapshot> events) {
-    if (events.isEmpty) return const Center(child: Text("No results published yet."));
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: events.length,
-      itemBuilder: (context, index) {
-        var data = events[index].data() as Map<String, dynamic>;
-        String eventId = events[index].id;
-        
-        // Find Result Data
-        var resDoc = _results.firstWhere((r) => r.id == eventId, orElse: () => _results[0]);
-        var resData = resDoc.data() as Map<String, dynamic>;
-        var winners = resData['winners'] ?? {};
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ExpansionTile(
-            leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.check, color: Colors.white)),
-            title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text("1st: ${_getWinnerName(winners['first'])}"),
+    return Column(
+      children: [
+        // Filter Bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: Colors.white,
+          child: Row(
             children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _resultRow("First", winners['first'], resData['points']['first']),
-                    _resultRow("Second", winners['second'], resData['points']['second']),
-                    _resultRow("Third", winners['third'], resData['points']['third']),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton.icon(
-                          onPressed: () => _openPublishDialog(eventId, data, editData: resData),
-                          icon: const Icon(Icons.edit), 
-                          label: const Text("Edit Result")
-                        ),
-                        const SizedBox(width: 10),
-                        TextButton.icon(
-                          onPressed: () => _deleteResult(eventId),
-                          icon: const Icon(Icons.delete, color: Colors.red), 
-                          label: const Text("Delete", style: TextStyle(color: Colors.red))
-                        ),
-                      ],
-                    )
+              const Icon(Icons.filter_list, color: Colors.grey, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButton<String>(
+                  value: _filterCategory,
+                  hint: const Text("Filter by Category"),
+                  isExpanded: true,
+                  underline: const SizedBox(),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text("All Categories")),
+                    ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
                   ],
+                  onChanged: (v) => setState(() => _filterCategory = v),
                 ),
-              )
+              ),
             ],
           ),
-        );
-      },
+        ),
+        
+        // List
+        Expanded(
+          child: pending.isEmpty 
+            ? const Center(child: Text("No pending events found."))
+            : ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: pending.length,
+                separatorBuilder: (c,i) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  var data = pending[index].data() as Map<String, dynamic>;
+                  return _buildEventCard(pending[index].id, data, isPending: true);
+                },
+              ),
+        ),
+      ],
     );
   }
 
-  Widget _resultRow(String rank, dynamic winner, dynamic pts) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(rank, style: const TextStyle(color: Colors.grey)),
-          Text(_getWinnerName(winner), style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text("$pts Pts", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-        ],
+  // ==============================================================================
+  // TAB 2: PUBLISHED EVENTS (HISTORY)
+  // ==============================================================================
+  Widget _buildPublishedTab() {
+    // Logic: Find events that ARE in results
+    List<String> publishedIds = _results.map((r) => r.id).toList();
+    List<DocumentSnapshot> published = _events.where((e) => publishedIds.contains(e.id)).toList();
+
+    return published.isEmpty 
+      ? const Center(child: Text("No results published yet."))
+      : ListView.separated(
+          padding: const EdgeInsets.all(12),
+          itemCount: published.length,
+          separatorBuilder: (c,i) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            var data = published[index].data() as Map<String, dynamic>;
+            return _buildEventCard(published[index].id, data, isPending: false);
+          },
+        );
+  }
+
+  // --- SHARED EVENT CARD ---
+  Widget _buildEventCard(String docId, Map<String, dynamic> data, {required bool isPending}) {
+    bool isGroup = data['type'] == 'group';
+    
+    // For Published: Get Winner Info
+    String winnerText = "";
+    if (!isPending) {
+      try {
+        var res = _results.firstWhere((r) => r.id == docId);
+        var rData = res.data() as Map<String, dynamic>;
+        var w = rData['winners']['first'];
+        if (isGroup) {
+          winnerText = "1st: $w"; // Team Name
+        } else {
+          // Find student name
+          var s = _students.firstWhere((s) => s.id == w, orElse: () => _students[0]); // Safety
+          winnerText = s.id == w ? "1st: ${s['name']} (${s['chestNo']})" : "1st: Unknown";
+        }
+      } catch (e) { winnerText = "Error loading result"; }
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: CircleAvatar(
+          backgroundColor: isPending ? Colors.orange.shade50 : Colors.green.shade50,
+          child: Icon(isGroup ? Icons.groups : Icons.person, color: isPending ? Colors.orange : Colors.green),
+        ),
+        title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("${data['category']} • ${data['type'].toString().toUpperCase()}"),
+            if(!isPending) Text(winnerText, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))
+          ],
+        ),
+        trailing: isPending 
+          ? ElevatedButton(
+              onPressed: () => _openPublishDialog(docId, data),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+              child: const Text("Publish"),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openPublishDialog(docId, data, isEdit: true)),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteResult(docId)),
+              ],
+            ),
       ),
     );
   }
 
-  // --- HELPER: GET WINNER NAME ---
-  // If Group, returns Team Name. If Single, returns Student Name (Chest No).
-  String _getWinnerName(dynamic winnerId) {
-    if (winnerId == null) return "-";
-    if (_teams.contains(winnerId)) return winnerId; // It's a team name
-    
-    // Try finding student
-    try {
-      var s = _students.firstWhere((doc) => doc.id == winnerId);
-      return "${s['name']} (${s['chestNo']})";
-    } catch (e) {
-      return "Unknown ($winnerId)";
+  // ==============================================================================
+  // TAB 3: SIMULATION (PLAYGROUND)
+  // ==============================================================================
+  Widget _buildSimulationTab() {
+    // 1. Calculate Real Scores
+    Map<String, int> realScores = {};
+    for (var t in _teams) realScores[t] = 0;
+
+    for (var res in _results) {
+      var d = res.data() as Map<String, dynamic>;
+      var pts = d['points'] ?? {'first': 5, 'second': 3, 'third': 1};
+      var wins = d['winners'] ?? {};
+      
+      void add(dynamic w, int p) {
+        if(w==null) return;
+        if(_teams.contains(w)) {
+          realScores[w] = (realScores[w] ?? 0) + p;
+        } else {
+          try {
+            var s = _students.firstWhere((s) => s.id == w);
+            String t = s['teamId'];
+            realScores[t] = (realScores[t] ?? 0) + p;
+          } catch(e){}
+        }
+      }
+      add(wins['first'], pts['first'] is int ? pts['first'] : 5);
+      add(wins['second'], pts['second'] is int ? pts['second'] : 3);
+      add(wins['third'], pts['third'] is int ? pts['third'] : 1);
     }
+
+    // 2. Combine with Simulation
+    Map<String, int> totalSimScores = {};
+    for (var t in _teams) {
+      totalSimScores[t] = (realScores[t] ?? 0) + (_simulatedExtraPoints[t] ?? 0);
+    }
+
+    // 3. Sort
+    var sorted = totalSimScores.entries.toList()..sort((a,b) => b.value.compareTo(a.value));
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Colors.purple.shade50,
+          child: const Row(children: [Icon(Icons.science, color: Colors.purple), SizedBox(width: 10), Expanded(child: Text("Simulation Mode: Add points here to test ranking changes. This does NOT affect real results.", style: TextStyle(fontSize: 12, color: Colors.purple)))]),
+        ),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: sorted.length,
+            separatorBuilder: (c,i) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              String team = sorted[index].key;
+              int score = sorted[index].value;
+              int real = realScores[team] ?? 0;
+              int sim = _simulatedExtraPoints[team] ?? 0;
+
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(child: Text("${index+1}")),
+                  title: Text(team, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text("Real: $real + Sim: $sim", style: const TextStyle(fontSize: 12)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: () => setState(() => _simulatedExtraPoints[team] = (_simulatedExtraPoints[team]! - 1))),
+                      Text("$score", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                      IconButton(icon: const Icon(Icons.add_circle, color: Colors.green), onPressed: () => setState(() => _simulatedExtraPoints[team] = (_simulatedExtraPoints[team]! + 5))), // Adds 5 pts as example
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(onPressed: () => setState(() { for(var t in _teams) _simulatedExtraPoints[t] = 0; }), icon: const Icon(Icons.refresh), label: const Text("Reset Simulation")),
+          ),
+        )
+      ],
+    );
   }
 
   // ==============================================================================
-  // 3. PUBLISH DIALOG (THE CORE LOGIC)
+  // PUBLISH MODAL (THE CORE)
   // ==============================================================================
-  void _openPublishDialog(String eventId, Map<String, dynamic> eventData, {Map<String, dynamic>? editData}) {
+  void _openPublishDialog(String eventId, Map<String, dynamic> eventData, {bool isEdit = false}) {
     bool isGroup = eventData['type'] == 'group';
     
-    // Points Controllers
-    final p1Ctrl = TextEditingController(text: editData != null ? editData['points']['first'].toString() : eventData['points'][0].toString());
-    final p2Ctrl = TextEditingController(text: editData != null ? editData['points']['second'].toString() : eventData['points'][1].toString());
-    final p3Ctrl = TextEditingController(text: editData != null ? editData['points']['third'].toString() : eventData['points'][2].toString());
+    // Default Points
+    int defP1 = 5, defP2 = 3, defP3 = 1;
+    if (isGroup) { defP1 = 10; defP2 = 8; defP3 = 5; }
 
-    // Selected Winners (ID for students, Name for Teams)
-    String? first = editData?['winners']['first'];
-    String? second = editData?['winners']['second'];
-    String? third = editData?['winners']['third'];
+    // If Edit, Load existing
+    Map<String, dynamic>? existingRes;
+    if (isEdit) {
+      existingRes = _results.firstWhere((r) => r.id == eventId).data() as Map<String, dynamic>;
+    }
 
-    // Filter Eligible Candidates
-    List<Map<String, String>> candidates = [];
+    final p1Ctrl = TextEditingController(text: existingRes?['points']['first'].toString() ?? defP1.toString());
+    final p2Ctrl = TextEditingController(text: existingRes?['points']['second'].toString() ?? defP2.toString());
+    final p3Ctrl = TextEditingController(text: existingRes?['points']['third'].toString() ?? defP3.toString());
+
+    String? first = existingRes?['winners']['first'];
+    String? second = existingRes?['winners']['second'];
+    String? third = existingRes?['winners']['third'];
+
+    // Generate Dropdown Items
+    List<DropdownMenuItem<String>> items = [];
     
     if (isGroup) {
       // Teams
-      candidates = _teams.map((t) => {'id': t, 'label': t}).toList();
+      items = _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList();
     } else {
-      // Students (Filtered by Category & Gender)
+      // Students (Filtered)
       String cat = eventData['category'];
-      String part = eventData['participation'] ?? 'open'; // boys, girls, open
+      String part = eventData['participation'] ?? 'open';
       
       var filtered = _students.where((s) {
         var d = s.data() as Map<String, dynamic>;
-        if (d['categoryId'] != cat && cat != "General") return false; // General allows all? Usually specific.
-        
-        // Gender Check
+        if (d['categoryId'] != cat && cat != "General") return false;
         if (part == 'boys' && d['gender'] == 'Female') return false;
         if (part == 'girls' && d['gender'] == 'Male') return false;
-        
         return true;
       }).toList();
 
-      candidates = filtered.map((s) {
+      items = filtered.map((s) {
         var d = s.data() as Map<String, dynamic>;
-        return {'id': s.id, 'label': "${d['chestNo']} - ${d['name']} (${d['teamId']})"};
+        return DropdownMenuItem(value: s.id, child: Text("${d['chestNo']} - ${d['name']} (${d['teamId']})", overflow: TextOverflow.ellipsis));
       }).toList();
-      
-      // Sort by Chest No
-      candidates.sort((a,b) => a['label']!.compareTo(b['label']!));
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: Text(editData == null ? "Publish Result" : "Edit Result"),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(eventData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)),
-                  Text("Category: ${eventData['category']} | Type: ${eventData['type']}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  const Divider(),
-                  
-                  // Points
-                  const Text("Points", style: TextStyle(fontWeight: FontWeight.bold)),
-                  Row(children: [
-                    Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "1st Pts"))),
-                    const SizedBox(width: 5),
-                    Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "2nd Pts"))),
-                    const SizedBox(width: 5),
-                    Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "3rd Pts"))),
-                  ]),
-                  const SizedBox(height: 15),
+    // Add "None" option
+    items.insert(0, const DropdownMenuItem(value: null, child: Text("None", style: TextStyle(color: Colors.grey))));
 
-                  // Winners
-                  _winnerDropdown("First Prize 🥇", first, candidates, (v) => setDialogState(() => first = v)),
-                  const SizedBox(height: 10),
-                  _winnerDropdown("Second Prize 🥈", second, candidates, (v) => setDialogState(() => second = v)),
-                  const SizedBox(height: 10),
-                  _winnerDropdown("Third Prize 🥉", third, candidates, (v) => setDialogState(() => third = v)),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-              ElevatedButton(
-                onPressed: () async {
-                  if (first == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("First Prize is mandatory")));
-                    return;
-                  }
-
-                  Map<String, dynamic> resultData = {
-                    'eventId': eventId,
-                    'eventName': eventData['name'],
-                    'category': eventData['category'],
-                    'type': eventData['type'],
-                    'points': {
-                      'first': int.tryParse(p1Ctrl.text) ?? 0,
-                      'second': int.tryParse(p2Ctrl.text) ?? 0,
-                      'third': int.tryParse(p3Ctrl.text) ?? 0,
-                    },
-                    'winners': {
-                      'first': first,
-                      'second': second,
-                      'third': third,
-                    },
-                    'publishedAt': FieldValue.serverTimestamp(),
-                  };
-
-                  await db.collection('results').doc(eventId).set(resultData);
-                  
-                  if(mounted) Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Result Published Successfully!")));
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                child: const Text("PUBLISH"),
-              )
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
+      return AlertDialog(
+        title: Text(isEdit ? "Edit Result" : "Publish Result"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(eventData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const Divider(),
+              // Points
+              Row(children: [
+                Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "1st Pts"))), const SizedBox(width: 5),
+                Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "2nd Pts"))), const SizedBox(width: 5),
+                Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "3rd Pts"))),
+              ]),
+              const SizedBox(height: 15),
+              // Winners
+              DropdownButtonFormField(value: first, items: items, onChanged: (v)=>setDialogState(()=>first=v), decoration: const InputDecoration(labelText: "🥇 First Prize")),
+              const SizedBox(height: 10),
+              DropdownButtonFormField(value: second, items: items, onChanged: (v)=>setDialogState(()=>second=v), decoration: const InputDecoration(labelText: "🥈 Second Prize")),
+              const SizedBox(height: 10),
+              DropdownButtonFormField(value: third, items: items, onChanged: (v)=>setDialogState(()=>third=v), decoration: const InputDecoration(labelText: "🥉 Third Prize")),
             ],
-          );
-        }
-      ),
-    );
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(onPressed: () async {
+            if (first == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("First Prize is required"))); return; }
+            
+            await db.collection('results').doc(eventId).set({
+              'eventId': eventId,
+              'eventName': eventData['name'],
+              'category': eventData['category'],
+              'type': eventData['type'],
+              'points': { 'first': int.parse(p1Ctrl.text), 'second': int.parse(p2Ctrl.text), 'third': int.parse(p3Ctrl.text) },
+              'winners': { 'first': first, 'second': second, 'third': third },
+              'publishedAt': FieldValue.serverTimestamp()
+            });
+            if(mounted) Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Published!")));
+          }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text("PUBLISH"))
+        ],
+      );
+    }));
   }
 
-  Widget _winnerDropdown(String label, String? value, List<Map<String, String>> items, Function(String?) onChanged) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      isExpanded: true,
-      decoration: InputDecoration(labelText: label, isDense: true, border: const OutlineInputBorder()),
-      items: [
-        const DropdownMenuItem(value: null, child: Text("None")),
-        ...items.map((e) => DropdownMenuItem(value: e['id'], child: Text(e['label']!, overflow: TextOverflow.ellipsis))),
-      ],
-      onChanged: onChanged,
-    );
-  }
-
-  Future<void> _deleteResult(String eventId) async {
-    if(await showDialog(context: context, builder: (c) => AlertDialog(title: const Text("Delete Result?"), content: const Text("This will move the event back to Pending list."), actions: [ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text("Delete"))])) ?? false) {
-      await db.collection('results').doc(eventId).delete();
+  Future<void> _deleteResult(String id) async {
+    if(await showDialog(context: context, builder: (c) => AlertDialog(title: const Text("Delete?"), actions: [ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text("Yes"))])) ?? false) {
+      await db.collection('results').doc(id).delete();
     }
   }
 }

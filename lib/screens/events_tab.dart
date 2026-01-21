@@ -1,9 +1,10 @@
 // File: lib/screens/events_tab.dart
-// Version: 2.0
-// Description: Event Creation, Editing & Listing with Smart Defaults for Points & Limits.
+// Version: 3.0
+// Description: Updated Points Logic (10,8,5), Edit Icon, Search Integration, Active Dropdown Highlight.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../layout/responsive_layout.dart'; // For globalSearchQuery
 
 class EventsTab extends StatefulWidget {
   const EventsTab({super.key});
@@ -14,10 +15,15 @@ class EventsTab extends StatefulWidget {
 class _EventsTabState extends State<EventsTab> {
   final db = FirebaseFirestore.instance;
 
-  // Filters & Settings Data
+  // Filters
   String? _filterCategory;
+  String? _filterType; // Single/Group
+  
+  // Data Caches
+  List<DocumentSnapshot> _allEvents = [];
   List<String> _categories = [];
-  bool _isMixedMode = true; // Default mixed
+  bool _isMixedMode = true;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -26,22 +32,30 @@ class _EventsTabState extends State<EventsTab> {
   }
 
   void _initData() {
-    // 1. Get Categories from Settings
+    // 1. Categories
     db.collection('settings').doc('general').snapshots().listen((snap) {
-      if (snap.exists) {
-        if(mounted) {
-          setState(() {
-            _categories = List<String>.from(snap.data()?['categories'] ?? []);
-          });
-        }
+      if (snap.exists && mounted) {
+        setState(() {
+          _categories = List<String>.from(snap.data()?['categories'] ?? []);
+        });
       }
     });
 
-    // 2. Get Fest Mode
+    // 2. Mode
     db.collection('config').doc('main').get().then((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _isMixedMode = (snap.data()?['mode'] ?? 'mixed') == 'mixed';
+        });
+      }
+    });
+
+    // 3. Events Listener (For Search & Filter)
+    db.collection('events').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+      if(mounted) {
+        setState(() {
+          _allEvents = snap.docs;
+          _isLoading = false;
         });
       }
     });
@@ -55,19 +69,14 @@ class _EventsTabState extends State<EventsTab> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // --- FILTER BAR ---
             _buildFilterBar(),
             const SizedBox(height: 16),
-            
-            // --- EVENTS LIST ---
             Expanded(child: _buildEventsList()),
           ],
         ),
       ),
-      
-      // --- ADD BUTTON ---
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEventDialog(), // Add New
+        onPressed: () => _openEventDialog(),
         backgroundColor: Colors.indigo,
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text("NEW EVENT", style: TextStyle(color: Colors.white)),
@@ -75,7 +84,7 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // 1. FILTER BAR
+  // 1. FILTER BAR (Enhanced)
   Widget _buildFilterBar() {
     return Card(
       child: Padding(
@@ -84,51 +93,105 @@ class _EventsTabState extends State<EventsTab> {
           children: [
             const Icon(Icons.filter_list, color: Colors.grey),
             const SizedBox(width: 10),
-            const Text("Filter: ", style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(width: 10),
+            
+            // Category Filter
             Expanded(
-              child: DropdownButton<String>(
+              child: _styledDropdown(
                 value: _filterCategory,
-                hint: const Text("All Categories"),
-                isExpanded: true,
-                underline: const SizedBox(),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text("All Categories")),
-                  const DropdownMenuItem(value: "General", child: Text("General")), // Static General
-                  ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c))),
-                ],
+                label: "Category",
+                items: ["General", ..._categories], // 'General' added manually
                 onChanged: (v) => setState(() => _filterCategory = v),
               ),
             ),
-            if (_filterCategory != null)
-              IconButton(icon: const Icon(Icons.clear, color: Colors.red), onPressed: () => setState(() => _filterCategory = null))
+            const SizedBox(width: 10),
+            
+            // Type Filter
+            Expanded(
+              child: _styledDropdown(
+                value: _filterType,
+                label: "Type",
+                items: ["Single", "Group"],
+                onChanged: (v) => setState(() => _filterType = v?.toLowerCase()),
+              ),
+            ),
+
+            // Clear Button
+            if (_filterCategory != null || _filterType != null)
+              IconButton(
+                icon: const Icon(Icons.clear, color: Colors.red),
+                tooltip: "Clear Filters",
+                onPressed: () => setState(() { _filterCategory = null; _filterType = null; }),
+              )
           ],
         ),
       ),
     );
   }
 
-  // 2. EVENTS LIST
-  Widget _buildEventsList() {
-    Query query = db.collection('events').orderBy('createdAt', descending: true);
-    
-    // Client-side filtering is better for 'General' + Dynamic categories mix
-    // but for simple query, we can do this:
-    if (_filterCategory != null) {
-      query = query.where('category', isEqualTo: _filterCategory);
-    }
+  // Custom Dropdown with Active Highlight
+  Widget _styledDropdown({required String? value, required String label, required List<String> items, required Function(String?) onChanged}) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      decoration: InputDecoration(
+        labelText: label, isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+        filled: true, fillColor: Colors.white,
+      ),
+      items: [
+        DropdownMenuItem(value: null, child: Text("All ${label}s", style: const TextStyle(color: Colors.grey))),
+        ...items.map((item) => DropdownMenuItem(
+          value: item,
+          child: Text(
+            item,
+            // Active Item Highlight (Bold & Color)
+            style: TextStyle(
+              fontWeight: value == item ? FontWeight.bold : FontWeight.normal,
+              color: value == item ? Colors.indigo : Colors.black87,
+            ),
+          ),
+        ))
+      ],
+      onChanged: onChanged,
+      selectedItemBuilder: (context) {
+        return [
+          const Text("All", style: TextStyle(color: Colors.grey)),
+          ...items.map((item) => Text(item, style: const TextStyle(fontWeight: FontWeight.bold, overflow: TextOverflow.ellipsis)))
+        ];
+      },
+    );
+  }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
-      builder: (context, snap) {
-        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        if (snap.data!.docs.isEmpty) return const Center(child: Text("No events created yet."));
+  // 2. EVENTS LIST (With Search & Edit Icon)
+  Widget _buildEventsList() {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_allEvents.isEmpty) return const Center(child: Text("No events created yet."));
+
+    return ValueListenableBuilder<String>(
+      valueListenable: globalSearchQuery,
+      builder: (context, searchQuery, _) {
+        
+        final filteredDocs = _allEvents.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          
+          // Filters
+          if (_filterCategory != null && data['category'] != _filterCategory) return false;
+          if (_filterType != null && data['type'] != _filterType) return false;
+          
+          // Search (Name)
+          if (searchQuery.isNotEmpty) {
+            if (!data['name'].toString().toLowerCase().contains(searchQuery)) return false;
+          }
+          return true;
+        }).toList();
+
+        if (filteredDocs.isEmpty) return const Center(child: Text("No matching events."));
 
         return ListView.builder(
-          itemCount: snap.data!.docs.length,
+          itemCount: filteredDocs.length,
           itemBuilder: (context, index) {
-            var data = snap.data!.docs[index].data() as Map<String, dynamic>;
-            String docId = snap.data!.docs[index].id;
+            var data = filteredDocs[index].data() as Map<String, dynamic>;
+            String docId = filteredDocs[index].id;
             
             bool isGroup = data['type'] == 'group';
             bool onStage = data['stage'] == 'On-Stage';
@@ -154,16 +217,24 @@ class _EventsTabState extends State<EventsTab> {
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
                             ),
                           ),
-                          // Delete Button
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                            onPressed: () => _deleteEvent(docId, data['name']),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
+                          // Edit & Delete Icons
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                                onPressed: () => _openEventDialog(id: docId, data: data),
+                                tooltip: "Edit",
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                onPressed: () => _deleteEvent(docId, data['name']),
+                                tooltip: "Delete",
+                              ),
+                            ],
                           )
                         ],
                       ),
-                      const SizedBox(height: 8),
                       // Tags
                       Wrap(
                         spacing: 8,
@@ -172,7 +243,6 @@ class _EventsTabState extends State<EventsTab> {
                           _buildTag(isGroup ? "GROUP" : "SINGLE", isGroup ? Colors.purple : Colors.blue),
                           _buildTag(data['category'], Colors.grey.shade700),
                           if(onStage) _buildTag("ON-STAGE", Colors.orange.shade800),
-                          // Participation Tag (Only if Mixed)
                           if(_isMixedMode && data['participation'] != null)
                              _buildTag(data['participation'].toString().toUpperCase(), 
                                data['participation']=='girls' ? Colors.pink : 
@@ -215,43 +285,38 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // ==============================================================================
-  // 3. ADD / EDIT EVENT DIALOG
-  // ==============================================================================
+  // 3. ADD / EDIT DIALOG (Updated Points)
   void _openEventDialog({String? id, Map<String, dynamic>? data}) {
-    // Controllers
     final nameCtrl = TextEditingController(text: data?['name']);
     final p1Ctrl = TextEditingController(text: data != null ? data['points'][0].toString() : '5');
     final p2Ctrl = TextEditingController(text: data != null ? data['points'][1].toString() : '3');
     final p3Ctrl = TextEditingController(text: data != null ? data['points'][2].toString() : '1');
     
-    // Limits
     final limit1Ctrl = TextEditingController(text: data != null ? (data['type']=='group' ? data['limits']['maxTeams'].toString() : data['limits']['maxParticipants'].toString()) : '3');
     final limit2Ctrl = TextEditingController(text: data != null && data['type']=='group' ? data['limits']['teamSize'].toString() : '5');
 
-    // State Variables
     String selType = data?['type'] ?? 'single';
     String? selCategory = data?['category'];
     String selStage = data?['stage'] ?? 'Off-Stage';
-    String selPart = data?['participation'] ?? 'open'; // open=Common, boys, girls
+    String selPart = data?['participation'] ?? 'open';
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           
-          // Logic to update defaults when Type changes
           void onTypeChanged(String? v) {
             if(v == null) return;
             setDialogState(() {
               selType = v;
               if (v == 'single') {
                 p1Ctrl.text = '5'; p2Ctrl.text = '3'; p3Ctrl.text = '1';
-                limit1Ctrl.text = '3'; // Max Participants
+                limit1Ctrl.text = '3';
               } else {
-                p1Ctrl.text = '10'; p2Ctrl.text = '5'; p3Ctrl.text = '2';
-                limit1Ctrl.text = '2'; // Max Teams
-                limit2Ctrl.text = '5'; // Team Size
+                // NEW POINTS LOGIC: 10, 8, 5
+                p1Ctrl.text = '10'; p2Ctrl.text = '8'; p3Ctrl.text = '5';
+                limit1Ctrl.text = '2'; 
+                limit2Ctrl.text = '5';
               }
             });
           }
@@ -261,9 +326,7 @@ class _EventsTabState extends State<EventsTab> {
             scrollable: true,
             content: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Name & Cat
                 TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name")),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
@@ -277,8 +340,6 @@ class _EventsTabState extends State<EventsTab> {
                   decoration: const InputDecoration(labelText: "Category"),
                 ),
                 const SizedBox(height: 10),
-
-                // 2. Type & Stage
                 Row(children: [
                   Expanded(
                     child: DropdownButtonFormField(
@@ -298,43 +359,37 @@ class _EventsTabState extends State<EventsTab> {
                     ),
                   ),
                 ]),
-                const SizedBox(height: 10),
-
-                // 3. Participation (Mixed Mode Only)
                 if (_isMixedMode) ...[
+                  const SizedBox(height: 10),
                   DropdownButtonFormField(
                     value: selPart,
                     items: const [
-                      DropdownMenuItem(value: "open", child: Text("Common (Boys & Girls)")),
+                      DropdownMenuItem(value: "open", child: Text("Common")),
                       DropdownMenuItem(value: "boys", child: Text("Boys Only")),
                       DropdownMenuItem(value: "girls", child: Text("Girls Only")),
                     ],
                     onChanged: (v) => setDialogState(() => selPart = v!),
                     decoration: const InputDecoration(labelText: "Participation"),
-                  ),
-                  const SizedBox(height: 10),
+                  )
                 ],
-
-                // 4. Points
-                const Text("Points (1st - 2nd - 3rd)", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 10),
+                const Text("Points (1st - 2nd - 3rd)", style: TextStyle(fontWeight: FontWeight.bold)),
                 Row(children: [
-                  Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number, textAlign: TextAlign.center)),
+                  Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number)),
                   const SizedBox(width: 5),
-                  Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number, textAlign: TextAlign.center)),
+                  Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number)),
                   const SizedBox(width: 5),
-                  Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number, textAlign: TextAlign.center)),
+                  Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number)),
                 ]),
                 const SizedBox(height: 10),
-
-                // 5. Limits (Dynamic)
-                const Text("Limits / Restrictions", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const Text("Limits", style: TextStyle(fontWeight: FontWeight.bold)),
                 if (selType == 'single')
                   TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants per House"))
                 else
                   Row(children: [
-                    Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams/House"))),
+                    Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams"))),
                     const SizedBox(width: 10),
-                    Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Participants/Team"))),
+                    Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Size/Team"))),
                   ])
               ],
             ),
@@ -349,7 +404,7 @@ class _EventsTabState extends State<EventsTab> {
                     'category': selCategory,
                     'type': selType,
                     'stage': selStage,
-                    'participation': _isMixedMode ? selPart : 'boys', // If not mixed, assume boys/open default logic
+                    'participation': _isMixedMode ? selPart : 'boys',
                     'points': [
                       int.tryParse(p1Ctrl.text) ?? 0,
                       int.tryParse(p2Ctrl.text) ?? 0,
@@ -358,13 +413,12 @@ class _EventsTabState extends State<EventsTab> {
                     'limits': selType == 'single' 
                       ? { 'maxParticipants': int.tryParse(limit1Ctrl.text) ?? 3 }
                       : { 'maxTeams': int.tryParse(limit1Ctrl.text) ?? 2, 'teamSize': int.tryParse(limit2Ctrl.text) ?? 5 },
-                    'createdAt': FieldValue.serverTimestamp(), // Update timestamp on edit too? Usually verify this.
+                    'createdAt': FieldValue.serverTimestamp(),
                   };
 
                   if (id == null) {
                     await db.collection('events').add(saveData);
                   } else {
-                    // Don't overwrite created date on edit
                     saveData.remove('createdAt');
                     await db.collection('events').doc(id).update(saveData);
                   }
@@ -381,7 +435,6 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // Delete
   Future<void> _deleteEvent(String id, String name) async {
     bool confirm = await showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text("Delete Event?"),

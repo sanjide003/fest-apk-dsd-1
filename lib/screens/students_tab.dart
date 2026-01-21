@@ -1,12 +1,11 @@
 // File: lib/screens/students_tab.dart
-// Version: 3.0
-// Description: Strict Add Logic (Checks Settings), Header Search Integration, Excel Export Only.
+// Version: 3.2
+// Description: Fixed build error by removing dart:html and using ExportHelper.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:html' as html; // For Web Export
-import 'dart:convert';
-import '../layout/responsive_layout.dart'; // To access globalSearchQuery
+import 'package:fest_manager/utils/export_helper.dart'; // Import helper
+import '../layout/responsive_layout.dart';
 
 class StudentsTab extends StatefulWidget {
   const StudentsTab({super.key});
@@ -20,32 +19,49 @@ class _StudentsTabState extends State<StudentsTab> {
   // Filters
   String? _filterTeam;
   String? _filterCategory;
-  String? _filterGender; // For Mixed Mode
+  String? _filterGender;
   
-  // Data
+  // Data Caches
+  List<DocumentSnapshot> _allStudents = [];
+  Map<String, dynamic> _chestConfig = {};
   List<String> _teams = [];
   List<String> _categories = [];
   bool _isMixedMode = true;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchSettings();
+    _initDataListeners();
   }
 
-  void _fetchSettings() {
+  void _initDataListeners() {
+    // 1. Settings
     db.collection('settings').doc('general').snapshots().listen((snap) {
-      if (snap.exists) {
+      if (snap.exists && mounted) {
         setState(() {
           _teams = List<String>.from(snap.data()?['teams'] ?? []);
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
+          _chestConfig = snap.data()?['chestConfig'] ?? {};
         });
       }
     });
+
+    // 2. Mode
     db.collection('config').doc('main').get().then((snap) {
-      if (snap.exists) {
+      if (snap.exists && mounted) {
         setState(() {
           _isMixedMode = (snap.data()?['mode'] ?? 'mixed') == 'mixed';
+        });
+      }
+    });
+
+    // 3. Students
+    db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
+      if(mounted) {
+        setState(() {
+          _allStudents = snap.docs;
+          _isLoading = false;
         });
       }
     });
@@ -59,11 +75,8 @@ class _StudentsTabState extends State<StudentsTab> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // --- FILTERS & EXPORT ---
             _buildActionCard(),
             const SizedBox(height: 16),
-            
-            // --- LIST ---
             Expanded(child: _buildStudentList()),
           ],
         ),
@@ -99,49 +112,48 @@ class _StudentsTabState extends State<StudentsTab> {
   }
 
   Widget _buildStudentList() {
-    // Listen to Global Search
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_allStudents.isEmpty) return const Center(child: Text("No students found."));
+
     return ValueListenableBuilder<String>(
       valueListenable: globalSearchQuery,
       builder: (context, searchQuery, _) {
         
-        Query query = db.collection('students').orderBy('chestNo');
-        if (_filterTeam != null) query = query.where('teamId', isEqualTo: _filterTeam);
-        if (_filterCategory != null) query = query.where('categoryId', isEqualTo: _filterCategory);
-        if (_filterGender != null) query = query.where('gender', isEqualTo: _filterGender);
+        final filteredDocs = _allStudents.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          
+          if (_filterTeam != null && data['teamId'] != _filterTeam) return false;
+          if (_filterCategory != null && data['categoryId'] != _filterCategory) return false;
+          if (_filterGender != null && data['gender'] != _filterGender) return false;
+          
+          if (searchQuery.isNotEmpty) {
+            String name = data['name'].toString().toLowerCase();
+            String chest = data['chestNo'].toString();
+            if (!name.contains(searchQuery) && !chest.contains(searchQuery)) return false;
+          }
+          
+          return true;
+        }).toList();
 
-        return StreamBuilder<QuerySnapshot>(
-          stream: query.snapshots(),
-          builder: (context, snap) {
-            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-            if (snap.data!.docs.isEmpty) return const Center(child: Text("No students found."));
+        if (filteredDocs.isEmpty) return const Center(child: Text("No matching records."));
 
-            // Client side filter for Search
-            var docs = snap.data!.docs.where((d) {
-              var data = d.data() as Map<String, dynamic>;
-              String name = data['name'].toString().toLowerCase();
-              String chest = data['chestNo'].toString();
-              return searchQuery.isEmpty || name.contains(searchQuery) || chest.contains(searchQuery);
-            }).toList();
-
-            return ListView.separated(
-              itemCount: docs.length,
-              separatorBuilder: (c, i) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                var data = docs[index].data() as Map<String, dynamic>;
-                return ListTile(
-                  tileColor: Colors.white,
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.indigo.shade50, foregroundColor: Colors.indigo,
-                    child: Text(data['chestNo'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  ),
-                  title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("${data['teamId']} • ${data['categoryId']} ${_isMixedMode ? '• ${data['gender']}' : ''}"),
-                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                    IconButton(icon: const Icon(Icons.edit, color: Colors.blue, size: 20), onPressed: () => _openEditDialog(docs[index].id, data)),
-                    IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: () => _deleteStudent(docs[index].id, data['name'])),
-                  ]),
-                );
-              },
+        return ListView.separated(
+          itemCount: filteredDocs.length,
+          separatorBuilder: (c, i) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            var data = filteredDocs[index].data() as Map<String, dynamic>;
+            return ListTile(
+              tileColor: Colors.white,
+              leading: CircleAvatar(
+                backgroundColor: Colors.indigo.shade50, foregroundColor: Colors.indigo,
+                child: Text(data['chestNo'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              ),
+              title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text("${data['teamId']} • ${data['categoryId']} ${_isMixedMode ? '• ${data['gender']}' : ''}"),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(icon: const Icon(Icons.edit, color: Colors.blue, size: 20), onPressed: () => _openEditDialog(filteredDocs[index].id, data)),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: () => _deleteStudent(filteredDocs[index].id, data['name'])),
+              ]),
             );
           },
         );
@@ -149,7 +161,6 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // --- ADD STUDENT (STRICT LOGIC) ---
   void _openAddStudentDialog() {
     String? selTeam;
     String? selCat;
@@ -158,40 +169,43 @@ class _StudentsTabState extends State<StudentsTab> {
     final nameCtrl = TextEditingController();
     final bulkCtrl = TextEditingController();
     int nextChest = 0;
-    bool loadingChest = false;
     String? errorMsg;
 
-    Future<void> checkConfigAndCalc(StateSetter setState) async {
+    void calcInstantChest(StateSetter setDialogState) {
       if (selTeam == null || selCat == null) return;
-      setState(() { loadingChest = true; errorMsg = null; });
-
-      // 1. Check Settings
-      var settingsSnap = await db.collection('settings').doc('general').get();
-      Map chestConfig = settingsSnap.data()?['chestConfig'] ?? {};
-      String key = _isMixedMode ? "$selTeam-$selCat-$selGender" : "$selTeam-$selCat-Male"; // Key Format must match Settings
       
-      int? startVal = chestConfig[key];
+      String key = _isMixedMode ? "$selTeam-$selCat-$selGender" : "$selTeam-$selCat-Male";
+      int? startVal = _chestConfig[key];
 
       if (startVal == null) {
-        setState(() { 
-          loadingChest = false; 
-          errorMsg = "Chest Number not configured for $selTeam - $selCat ($selGender). Go to Settings."; 
+        setDialogState(() {
+          errorMsg = "Config missing for $key. Check Settings.";
           nextChest = 0;
         });
         return;
+      } else {
+        setDialogState(() => errorMsg = null);
       }
 
-      // 2. Calc Next Number
-      var q = db.collection('students').where('teamId', isEqualTo: selTeam).where('categoryId', isEqualTo: selCat);
-      if(_isMixedMode) q = q.where('gender', isEqualTo: selGender);
-      
-      var sSnap = await q.orderBy('chestNo', descending: true).limit(1).get();
-      if (sSnap.docs.isNotEmpty) {
-        nextChest = (sSnap.docs.first['chestNo'] as int) + 1;
-      } else {
-        nextChest = startVal;
+      int maxVal = startVal;
+      bool found = false;
+
+      for (var doc in _allStudents) {
+        var d = doc.data() as Map<String, dynamic>;
+        if (d['teamId'] == selTeam && d['categoryId'] == selCat) {
+          if (!_isMixedMode || d['gender'] == selGender) {
+            int c = d['chestNo'] as int;
+            if (c >= maxVal) {
+              maxVal = c;
+              found = true;
+            }
+          }
+        }
       }
-      setState(() => loadingChest = false);
+
+      setDialogState(() {
+        nextChest = found ? maxVal + 1 : startVal;
+      });
     }
 
     showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
@@ -202,17 +216,16 @@ class _StudentsTabState extends State<StudentsTab> {
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
                Row(children: [
-                 Expanded(child: DropdownButtonFormField(value: selTeam, hint: const Text("Team"), items: _teams.map((e)=>DropdownMenuItem(value:e, child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selTeam=v.toString()); checkConfigAndCalc(setDialogState); })),
+                 Expanded(child: DropdownButtonFormField(value: selTeam, hint: const Text("Team"), items: _teams.map((e)=>DropdownMenuItem(value:e, child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selTeam=v.toString()); calcInstantChest(setDialogState); })),
                  const SizedBox(width: 10),
-                 Expanded(child: DropdownButtonFormField(value: selCat, hint: const Text("Category"), items: _categories.map((e)=>DropdownMenuItem(value:e, child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selCat=v.toString()); checkConfigAndCalc(setDialogState); })),
+                 Expanded(child: DropdownButtonFormField(value: selCat, hint: const Text("Category"), items: _categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selCat=v.toString()); calcInstantChest(setDialogState); })),
                ]),
                if(_isMixedMode) ...[
                  const SizedBox(height: 10),
-                 Row(children: [const Text("Gender: "), Radio(value: "Male", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); checkConfigAndCalc(setDialogState); }), const Text("Male"), Radio(value: "Female", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); checkConfigAndCalc(setDialogState); }), const Text("Female")]),
+                 Row(children: [const Text("Gender: "), Radio(value: "Male", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); calcInstantChest(setDialogState); }), const Text("Male"), Radio(value: "Female", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); calcInstantChest(setDialogState); }), const Text("Female")]),
                ],
                const Divider(),
                
-               // Error or Success
                if(errorMsg != null)
                  Padding(padding: const EdgeInsets.all(8.0), child: Text(errorMsg!, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)))
                else ...[
@@ -220,7 +233,7 @@ class _StudentsTabState extends State<StudentsTab> {
                  if(!isBulk) TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name"))
                  else TextField(controller: bulkCtrl, maxLines: 5, decoration: const InputDecoration(labelText: "Names (New line separated)")),
                  const SizedBox(height: 10),
-                 Container(padding: const EdgeInsets.all(10), color: Colors.indigo.shade50, child: Row(children: [const Text("Next Chest No: "), loadingChest ? const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)) : Text("$nextChest", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))]))
+                 Container(padding: const EdgeInsets.all(10), color: Colors.indigo.shade50, child: Row(children: [const Text("Next Chest No: "), Text("$nextChest", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))]))
                ]
             ]),
           ),
@@ -228,7 +241,6 @@ class _StudentsTabState extends State<StudentsTab> {
         actions: [
           TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(onPressed: (errorMsg != null || nextChest == 0) ? null : () async {
-             // Save Logic
              var batch = db.batch();
              int cNo = nextChest;
              if(isBulk) {
@@ -244,7 +256,6 @@ class _StudentsTabState extends State<StudentsTab> {
     }));
   }
 
-  // --- EDIT & DELETE (Manual Chest No Allowed) ---
   void _openEditDialog(String id, Map d) {
     final nCtrl = TextEditingController(text: d['name']);
     final cCtrl = TextEditingController(text: d['chestNo'].toString());
@@ -269,14 +280,20 @@ class _StudentsTabState extends State<StudentsTab> {
     }
   }
 
+  // Updated to use ExportHelper
   Future<void> _exportToExcel() async {
-    var s = await db.collection('students').orderBy('chestNo').get();
-    String csv = "ChestNo,Name,Team,Category,Gender\n";
-    for(var d in s.docs) { var m=d.data(); csv+="${m['chestNo']},${m['name']},${m['teamId']},${m['categoryId']},${m['gender']}\n"; }
-    final bytes = utf8.encode(csv);
-    final blob = html.Blob([bytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)..setAttribute("download", "students.csv")..click();
-    html.Url.revokeObjectUrl(url);
+    if (_allStudents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No data to export")));
+      return;
+    }
+    String csv = "Chest No,Name,Team,Category,Gender\n";
+    for(var d in _allStudents) { 
+      var m = d.data() as Map; 
+      csv+="${m['chestNo']},${m['name']},${m['teamId']},${m['categoryId']},${m['gender']}\n"; 
+    }
+    
+    // Using the helper for cross-platform support
+    await ExportHelper.downloadCsv(csv, "students_list.csv");
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Export downloaded!")));
   }
 }

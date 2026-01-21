@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 9.0
-// Description: Added 'Registrations' Tab to the navigation menu.
+// Version: 9.1
+// Description: Fixed syntax error (Closing parenthesis).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -11,7 +11,7 @@ import '../screens/students_tab.dart';
 import '../screens/events_tab.dart';
 import '../screens/dashboard_tab.dart';
 import '../screens/publish_tab.dart';
-import '../screens/registrations_tab.dart'; // IMPORTED
+import '../screens/registrations_tab.dart';
 
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
@@ -29,54 +29,29 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   final FocusNode _searchFocus = FocusNode();
   
   late AnimationController _menuAnimCtrl;
-  late AnimationController _searchAnimCtrl;
-  late Animation<double> _searchWidthAnim;
 
-  // സ്ക്രീനുകളുടെ ലിസ്റ്റ് (Registrations ഉൾപ്പെടുത്തി)
   final List<Widget> _screens = [
     const DashboardTab(),
     const StudentsTab(),
     const EventsTab(),
-    const RegistrationsTab(), // NEW TAB
+    const RegistrationsTab(),
     const PublishTab(),
     const WebConfigView(),
     const SettingsView(),
   ];
 
-  // മെനു പേരുകൾ
-  final List<String> _titles = [
-    "Dashboard", 
-    "Students", 
-    "Events", 
-    "Registrations", // NEW TITLE
-    "Publish", 
-    "Web Config", 
-    "Settings"
-  ];
-
-  // ഐക്കണുകൾ
-  final List<IconData> _icons = [
-    Icons.dashboard, 
-    Icons.people, 
-    Icons.emoji_events, 
-    Icons.how_to_reg, // Icon for Registrations
-    Icons.emoji_events_outlined, 
-    Icons.language, 
-    Icons.settings
-  ];
+  final List<String> _titles = ["Dashboard", "Students", "Events", "Registrations", "Publish", "Web Config", "Settings"];
+  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.how_to_reg, Icons.emoji_events_outlined, Icons.language, Icons.settings];
 
   @override
   void initState() {
     super.initState();
     _menuAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
-    _searchAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
-    _searchWidthAnim = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _searchAnimCtrl, curve: Curves.easeInOut));
   }
 
   @override
   void dispose() {
     _menuAnimCtrl.dispose();
-    _searchAnimCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -125,10 +100,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           children: [
             Column(
               children: [
-                // HEADER
                 _buildFloatingHeader(isWeb),
-                
-                // BODY
                 Expanded(
                   child: Row(
                     children: [
@@ -146,7 +118,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
               ],
             ),
             
-            // MOBILE DROPDOWN MENU
             if (_isMenuOpen && !isWeb)
               Positioned(
                 top: 80,
@@ -171,15 +142,13 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
               
             if (_isMenuOpen && !isWeb)
               Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildFloatingHeader(bool isWeb) {
-    // Search is allowed in Students(1), Events(2), Publish(4)
-    // Note: Indexes shifted because of new tab.
-    // 0:Dash, 1:Students, 2:Events, 3:Regs, 4:Publish
     bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 4); 
 
     return Container(
@@ -201,22 +170,15 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           return Row(
             children: [
               const SizedBox(width: 8),
-              
-              // 1. HAMBURGER
               if (!isWeb)
-                IconButton(
-                  icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), 
-                  onPressed: _toggleMenu
-                ),
+                IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), onPressed: _toggleMenu),
 
-              // 2. MIDDLE SECTION
               Expanded(
                 child: _isSearchExpanded
                   ? _buildSearchBar() 
                   : _buildNormalHeaderContent(festName, tagline, allowSearch),
               ),
 
-              // 3. LOGO
               if (logoUrl.isNotEmpty)
                 Padding(padding: const EdgeInsets.only(right: 12, left: 8), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
               else
@@ -231,13 +193,10 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   Widget _buildNormalHeaderContent(String festName, String tagline, bool allowSearch) {
     return Row(
       children: [
-        // Tab Name
         Padding(
           padding: const EdgeInsets.only(left: 8, right: 16),
           child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
         ),
-        
-        // Center Title
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -247,14 +206,8 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
             ],
           ),
         ),
-
-        // Search Icon
         if (allowSearch)
-          IconButton(
-            icon: const Icon(Icons.search, color: Colors.grey),
-            onPressed: _openSearch,
-            tooltip: "Search",
-          ),
+          IconButton(icon: const Icon(Icons.search, color: Colors.grey), onPressed: _openSearch, tooltip: "Search"),
       ],
     );
   }
@@ -263,24 +216,11 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
     return Container(
       height: 40,
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.indigo.withOpacity(0.3))
-      ),
+      decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.indigo.withOpacity(0.3))),
       child: TextField(
         controller: _searchCtrl,
         focusNode: _searchFocus,
-        decoration: InputDecoration(
-          hintText: "Search...",
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          isDense: true,
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.close, size: 20, color: Colors.grey),
-            onPressed: _closeSearch,
-          ),
-        ),
+        decoration: InputDecoration(hintText: "Search...", border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), isDense: true, suffixIcon: IconButton(icon: const Icon(Icons.close, size: 20, color: Colors.grey), onPressed: _closeSearch)),
         onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
       ),
     );

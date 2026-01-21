@@ -1,6 +1,6 @@
 // File: lib/screens/publish_tab.dart
-// Version: 1.0
-// Description: Result Publishing System (Pending, Published, Simulation). No Photo Upload.
+// Version: 2.0
+// Description: Advanced Publishing System. Supports Multiple Winners, Live Ticker, Archive, Simulation.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -22,52 +22,77 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
   List<String> _teams = [];
   List<String> _categories = [];
   
-  // Filter for Pending Tab
+  // Filter
   String? _filterCategory;
 
-  // Simulation State
-  Map<String, int> _simulatedExtraPoints = {};
+  // Simulation Selection
+  Set<String> _selectedForSimulation = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this); // 3 Tabs
+    _tabController = TabController(length: 3, vsync: this);
     _initData();
   }
 
   void _initData() {
-    // 1. Settings (Teams & Categories)
+    // 1. Settings
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _teams = List<String>.from(snap.data()?['teams'] ?? []);
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
-          // Init Simulation Map
-          for (var t in _teams) { _simulatedExtraPoints[t] = 0; }
         });
       }
     });
 
-    // 2. Events
-    db.collection('events').orderBy('createdAt').snapshots().listen((snap) {
-      if(mounted) setState(() => _events = snap.docs);
-    });
-
-    // 3. Results
-    db.collection('results').snapshots().listen((snap) {
-      if(mounted) setState(() => _results = snap.docs);
-    });
-
-    // 4. Students
-    db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
-      if(mounted) setState(() => _students = snap.docs);
-    });
+    // 2. Events & Results & Students
+    db.collection('events').orderBy('createdAt').snapshots().listen((snap) { if(mounted) setState(() => _events = snap.docs); });
+    db.collection('results').snapshots().listen((snap) { if(mounted) setState(() => _results = snap.docs); });
+    db.collection('students').snapshots().listen((snap) { if(mounted) setState(() => _students = snap.docs); });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  // --- HELPER: Calculate Scores ---
+  // returns { "Red": 120, "Blue": 110 }
+  Map<String, int> _calculateScores({List<DocumentSnapshot>? customResults}) {
+    Map<String, int> scores = { for (var t in _teams) t: 0 };
+    List<DocumentSnapshot> targetResults = customResults ?? _results.where((r) => r['status'] == 'published').toList();
+
+    for (var res in targetResults) {
+      var d = res.data() as Map<String, dynamic>;
+      var pts = d['points'] ?? {'first': 5, 'second': 3, 'third': 1};
+      var winners = d['winners'] ?? {};
+
+      // Helper to add points (Supports List for Multiple Winners)
+      void addPoints(dynamic winnerData, int points) {
+        if (winnerData == null) return;
+        List list = (winnerData is List) ? winnerData : [winnerData];
+        
+        for (var w in list) {
+          if (_teams.contains(w)) {
+            scores[w] = (scores[w] ?? 0) + points;
+          } else {
+            // Find student's team
+            try {
+              var s = _students.firstWhere((st) => st.id == w);
+              String t = s['teamId'];
+              scores[t] = (scores[t] ?? 0) + points;
+            } catch (e) {}
+          }
+        }
+      }
+
+      addPoints(winners['first'], pts['first']);
+      addPoints(winners['second'], pts['second']);
+      addPoints(winners['third'], pts['third']);
+    }
+    return scores;
   }
 
   @override
@@ -83,12 +108,7 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
             labelColor: Colors.indigo,
             unselectedLabelColor: Colors.grey,
             indicatorColor: Colors.indigo,
-            indicatorWeight: 3,
-            tabs: const [
-              Tab(text: "PENDING"),
-              Tab(text: "PUBLISHED"),
-              Tab(text: "SIMULATION"),
-            ],
+            tabs: const [Tab(text: "PENDING"), Tab(text: "PUBLISHED"), Tab(text: "ARCHIVE")],
           ),
         ),
       ),
@@ -97,140 +117,183 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
         children: [
           _buildPendingTab(),
           _buildPublishedTab(),
-          _buildSimulationTab(),
+          _buildArchiveTab(),
         ],
       ),
     );
   }
 
   // ==============================================================================
-  // TAB 1: PENDING EVENTS (ENTRY)
+  // TAB 1: PENDING (New Entry)
   // ==============================================================================
   Widget _buildPendingTab() {
-    // Logic: Find events that are NOT in results
-    List<String> publishedIds = _results.map((r) => r.id).toList();
-    List<DocumentSnapshot> pending = _events.where((e) => !publishedIds.contains(e.id)).toList();
+    List<String> resultIds = _results.map((r) => r.id).toList();
+    List<DocumentSnapshot> pending = _events.where((e) => !resultIds.contains(e.id)).toList();
 
-    // Apply Category Filter
-    if (_filterCategory != null) {
-      pending = pending.where((e) => e['category'] == _filterCategory).toList();
-    }
+    if (_filterCategory != null) pending = pending.where((e) => e['category'] == _filterCategory).toList();
 
     return Column(
       children: [
-        // Filter Bar
+        // Filter
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: Colors.white,
-          child: Row(
-            children: [
-              const Icon(Icons.filter_list, color: Colors.grey, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButton<String>(
-                  value: _filterCategory,
-                  hint: const Text("Filter by Category"),
-                  isExpanded: true,
-                  underline: const SizedBox(),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text("All Categories")),
-                    ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                  ],
-                  onChanged: (v) => setState(() => _filterCategory = v),
-                ),
-              ),
+          child: DropdownButton<String>(
+            value: _filterCategory,
+            hint: const Text("Filter Category"),
+            isExpanded: true,
+            underline: const SizedBox(),
+            items: [
+              const DropdownMenuItem(value: null, child: Text("All Categories")),
+              ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
             ],
+            onChanged: (v) => setState(() => _filterCategory = v),
           ),
         ),
-        
-        // List
         Expanded(
           child: pending.isEmpty 
-            ? const Center(child: Text("No pending events found."))
-            : ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: pending.length,
-                separatorBuilder: (c,i) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  var data = pending[index].data() as Map<String, dynamic>;
-                  return _buildEventCard(pending[index].id, data, isPending: true);
-                },
-              ),
+           ? const Center(child: Text("No pending events."))
+           : ListView.builder(
+               padding: const EdgeInsets.all(12),
+               itemCount: pending.length,
+               itemBuilder: (c, i) => _buildEventCard(pending[i], status: 'pending'),
+             ),
         ),
       ],
     );
   }
 
   // ==============================================================================
-  // TAB 2: PUBLISHED EVENTS (HISTORY)
+  // TAB 2: PUBLISHED (With Ticker)
   // ==============================================================================
   Widget _buildPublishedTab() {
-    // Logic: Find events that ARE in results
-    List<String> publishedIds = _results.map((r) => r.id).toList();
-    List<DocumentSnapshot> published = _events.where((e) => publishedIds.contains(e.id)).toList();
+    List<DocumentSnapshot> published = _results.where((r) => r['status'] == 'published').toList();
+    Map<String, int> liveScores = _calculateScores();
+    var sortedScores = liveScores.entries.toList()..sort((a,b) => b.value.compareTo(a.value));
 
-    return published.isEmpty 
-      ? const Center(child: Text("No results published yet."))
-      : ListView.separated(
-          padding: const EdgeInsets.all(12),
-          itemCount: published.length,
-          separatorBuilder: (c,i) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            var data = published[index].data() as Map<String, dynamic>;
-            return _buildEventCard(published[index].id, data, isPending: false);
-          },
-        );
+    return Column(
+      children: [
+        // LIVE TICKER
+        Container(
+          height: 50,
+          color: Colors.indigo.shade900,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: sortedScores.length,
+            separatorBuilder: (c,i) => const VerticalDivider(color: Colors.white24, width: 20),
+            itemBuilder: (c, i) {
+              var entry = sortedScores[i];
+              return Center(
+                child: Row(
+                  children: [
+                    Text("#${i+1} ", style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+                    Text("${entry.key}: ", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    Text("${entry.value} pts", style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        
+        // LIST
+        Expanded(
+          child: published.isEmpty
+           ? const Center(child: Text("No results published."))
+           : ListView.builder(
+               padding: const EdgeInsets.all(12),
+               itemCount: published.length,
+               itemBuilder: (c, i) {
+                 // Join with Event Data
+                 var res = published[i];
+                 var evt = _events.firstWhere((e) => e.id == res.id, orElse: () => _events[0]); // Fallback
+                 return _buildEventCard(evt, status: 'published', resultDoc: res);
+               },
+             ),
+        ),
+      ],
+    );
   }
 
-  // --- SHARED EVENT CARD ---
-  Widget _buildEventCard(String docId, Map<String, dynamic> data, {required bool isPending}) {
-    bool isGroup = data['type'] == 'group';
-    
-    // For Published: Get Winner Info
-    String winnerText = "";
-    if (!isPending) {
-      try {
-        var res = _results.firstWhere((r) => r.id == docId);
-        var rData = res.data() as Map<String, dynamic>;
-        var w = rData['winners']['first'];
-        if (isGroup) {
-          winnerText = "1st: $w"; // Team Name
-        } else {
-          // Find student name
-          var s = _students.firstWhere((s) => s.id == w, orElse: () => _students[0]); // Safety
-          winnerText = s.id == w ? "1st: ${s['name']} (${s['chestNo']})" : "1st: Unknown";
-        }
-      } catch (e) { winnerText = "Error loading result"; }
-    }
+  // ==============================================================================
+  // TAB 3: ARCHIVE (Simulation)
+  // ==============================================================================
+  Widget _buildArchiveTab() {
+    List<DocumentSnapshot> archived = _results.where((r) => r['status'] == 'archived').toList();
+
+    return Scaffold( // Nested Scaffold for FAB
+      backgroundColor: Colors.transparent,
+      floatingActionButton: _selectedForSimulation.isNotEmpty
+        ? FloatingActionButton.extended(
+            onPressed: _openSimulationModal,
+            icon: const Icon(Icons.analytics),
+            label: Text("Simulate (${_selectedForSimulation.length})"),
+            backgroundColor: Colors.purple,
+          )
+        : null,
+      body: archived.isEmpty
+        ? const Center(child: Text("Archive is empty."))
+        : ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: archived.length,
+            itemBuilder: (c, i) {
+              var res = archived[i];
+              var evt = _events.firstWhere((e) => e.id == res.id, orElse: () => _events[0]);
+              bool isSel = _selectedForSimulation.contains(res.id);
+
+              return Card(
+                color: isSel ? Colors.purple.shade50 : null,
+                child: ListTile(
+                  leading: Checkbox(
+                    value: isSel,
+                    onChanged: (v) => setState(() {
+                      v! ? _selectedForSimulation.add(res.id) : _selectedForSimulation.remove(res.id);
+                    }),
+                  ),
+                  title: Text(evt['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text("Status: Archived"),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openPublishDialog(evt, existingResult: res)),
+                      IconButton(icon: const Icon(Icons.publish, color: Colors.green), onPressed: () => _updateStatus(res.id, 'published')),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+    );
+  }
+
+  // --- EVENT CARD WIDGET ---
+  Widget _buildEventCard(DocumentSnapshot evt, {required String status, DocumentSnapshot? resultDoc}) {
+    var d = evt.data() as Map<String, dynamic>;
+    bool isGroup = d['type'] == 'group';
 
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 1,
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
-          backgroundColor: isPending ? Colors.orange.shade50 : Colors.green.shade50,
-          child: Icon(isGroup ? Icons.groups : Icons.person, color: isPending ? Colors.orange : Colors.green),
+          backgroundColor: isGroup ? Colors.purple.shade50 : Colors.blue.shade50,
+          child: Icon(isGroup ? Icons.groups : Icons.person, color: isGroup ? Colors.purple : Colors.blue, size: 20),
         ),
-        title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("${data['category']} • ${data['type'].toString().toUpperCase()}"),
-            if(!isPending) Text(winnerText, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))
-          ],
-        ),
-        trailing: isPending 
+        title: Text(d['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        subtitle: Text("${d['category']} • ${d['stage'] ?? 'Off-Stage'}"),
+        trailing: status == 'pending'
           ? ElevatedButton(
-              onPressed: () => _openPublishDialog(docId, data),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-              child: const Text("Publish"),
+              onPressed: () => _openPublishDialog(evt),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16)),
+              child: const Text("Enter Result"),
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openPublishDialog(docId, data, isEdit: true)),
-                IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteResult(docId)),
+                if(status == 'published') IconButton(icon: const Icon(Icons.archive, color: Colors.orange), onPressed: () => _updateStatus(evt.id, 'archived'), tooltip: "Move to Archive"),
+                IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _openPublishDialog(evt, existingResult: resultDoc)),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteResult(evt.id)),
               ],
             ),
       ),
@@ -238,193 +301,259 @@ class _PublishTabState extends State<PublishTab> with SingleTickerProviderStateM
   }
 
   // ==============================================================================
-  // TAB 3: SIMULATION (PLAYGROUND)
+  // DIALOG: PUBLISH RESULT (MULTIPLE WINNERS)
   // ==============================================================================
-  Widget _buildSimulationTab() {
-    // 1. Calculate Real Scores
-    Map<String, int> realScores = {};
-    for (var t in _teams) realScores[t] = 0;
-
-    for (var res in _results) {
-      var d = res.data() as Map<String, dynamic>;
-      var pts = d['points'] ?? {'first': 5, 'second': 3, 'third': 1};
-      var wins = d['winners'] ?? {};
-      
-      void add(dynamic w, int p) {
-        if(w==null) return;
-        if(_teams.contains(w)) {
-          realScores[w] = (realScores[w] ?? 0) + p;
-        } else {
-          try {
-            var s = _students.firstWhere((s) => s.id == w);
-            String t = s['teamId'];
-            realScores[t] = (realScores[t] ?? 0) + p;
-          } catch(e){}
-        }
-      }
-      add(wins['first'], pts['first'] is int ? pts['first'] : 5);
-      add(wins['second'], pts['second'] is int ? pts['second'] : 3);
-      add(wins['third'], pts['third'] is int ? pts['third'] : 1);
-    }
-
-    // 2. Combine with Simulation
-    Map<String, int> totalSimScores = {};
-    for (var t in _teams) {
-      totalSimScores[t] = (realScores[t] ?? 0) + (_simulatedExtraPoints[t] ?? 0);
-    }
-
-    // 3. Sort
-    var sorted = totalSimScores.entries.toList()..sort((a,b) => b.value.compareTo(a.value));
-
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: Colors.purple.shade50,
-          child: const Row(children: [Icon(Icons.science, color: Colors.purple), SizedBox(width: 10), Expanded(child: Text("Simulation Mode: Add points here to test ranking changes. This does NOT affect real results.", style: TextStyle(fontSize: 12, color: Colors.purple)))]),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: sorted.length,
-            separatorBuilder: (c,i) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              String team = sorted[index].key;
-              int score = sorted[index].value;
-              int real = realScores[team] ?? 0;
-              int sim = _simulatedExtraPoints[team] ?? 0;
-
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(child: Text("${index+1}")),
-                  title: Text(team, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("Real: $real + Sim: $sim", style: const TextStyle(fontSize: 12)),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: () => setState(() => _simulatedExtraPoints[team] = (_simulatedExtraPoints[team]! - 1))),
-                      Text("$score", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                      IconButton(icon: const Icon(Icons.add_circle, color: Colors.green), onPressed: () => setState(() => _simulatedExtraPoints[team] = (_simulatedExtraPoints[team]! + 5))), // Adds 5 pts as example
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(onPressed: () => setState(() { for(var t in _teams) _simulatedExtraPoints[t] = 0; }), icon: const Icon(Icons.refresh), label: const Text("Reset Simulation")),
-          ),
-        )
-      ],
-    );
-  }
-
-  // ==============================================================================
-  // PUBLISH MODAL (THE CORE)
-  // ==============================================================================
-  void _openPublishDialog(String eventId, Map<String, dynamic> eventData, {bool isEdit = false}) {
-    bool isGroup = eventData['type'] == 'group';
+  void _openPublishDialog(DocumentSnapshot evt, {DocumentSnapshot? existingResult}) {
+    var eData = evt.data() as Map<String, dynamic>;
+    bool isGroup = eData['type'] == 'group';
     
-    // Default Points
-    int defP1 = 5, defP2 = 3, defP3 = 1;
-    if (isGroup) { defP1 = 10; defP2 = 8; defP3 = 5; }
+    // Initial Points
+    var defPts = isGroup ? [10,8,5] : [5,3,1];
+    var oldPts = existingResult != null ? existingResult['points'] : null;
+    
+    final p1Ctrl = TextEditingController(text: (oldPts?['first'] ?? defPts[0]).toString());
+    final p2Ctrl = TextEditingController(text: (oldPts?['second'] ?? defPts[1]).toString());
+    final p3Ctrl = TextEditingController(text: (oldPts?['third'] ?? defPts[2]).toString());
 
-    // If Edit, Load existing
-    Map<String, dynamic>? existingRes;
-    if (isEdit) {
-      existingRes = _results.firstWhere((r) => r.id == eventId).data() as Map<String, dynamic>;
+    // Selected Winners (Lists)
+    List<String> firsts = [];
+    List<String> seconds = [];
+    List<String> thirds = [];
+
+    if (existingResult != null) {
+      var w = existingResult['winners'];
+      firsts = List<String>.from(w['first'] is List ? w['first'] : [w['first']]);
+      seconds = List<String>.from(w['second'] is List ? w['second'] : [w['second']]);
+      thirds = List<String>.from(w['third'] is List ? w['third'] : [w['third']]);
+      // Remove nulls if any
+      firsts.removeWhere((e) => e == null);
+      seconds.removeWhere((e) => e == null);
+      thirds.removeWhere((e) => e == null);
     }
 
-    final p1Ctrl = TextEditingController(text: existingRes?['points']['first'].toString() ?? defP1.toString());
-    final p2Ctrl = TextEditingController(text: existingRes?['points']['second'].toString() ?? defP2.toString());
-    final p3Ctrl = TextEditingController(text: existingRes?['points']['third'].toString() ?? defP3.toString());
-
-    String? first = existingRes?['winners']['first'];
-    String? second = existingRes?['winners']['second'];
-    String? third = existingRes?['winners']['third'];
-
-    // Generate Dropdown Items
-    List<DropdownMenuItem<String>> items = [];
-    
+    // Prepare Candidates List
+    List<Map<String, String>> candidates = [];
     if (isGroup) {
-      // Teams
-      items = _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList();
+      candidates = _teams.map((t) => {'id': t, 'label': t}).toList();
     } else {
-      // Students (Filtered)
-      String cat = eventData['category'];
-      String part = eventData['participation'] ?? 'open';
-      
-      var filtered = _students.where((s) {
+      String cat = eData['category'];
+      String part = eData['participation'] ?? 'open';
+      candidates = _students.where((s) {
         var d = s.data() as Map<String, dynamic>;
         if (d['categoryId'] != cat && cat != "General") return false;
         if (part == 'boys' && d['gender'] == 'Female') return false;
         if (part == 'girls' && d['gender'] == 'Male') return false;
         return true;
-      }).toList();
-
-      items = filtered.map((s) {
-        var d = s.data() as Map<String, dynamic>;
-        return DropdownMenuItem(value: s.id, child: Text("${d['chestNo']} - ${d['name']} (${d['teamId']})", overflow: TextOverflow.ellipsis));
-      }).toList();
+      }).map((s) => {'id': s.id, 'label': "${s['chestNo']} - ${s['name']} (${s['teamId']})"}).toList();
+      candidates.sort((a,b) => a['label']!.compareTo(b['label']!));
     }
 
-    // Add "None" option
-    items.insert(0, const DropdownMenuItem(value: null, child: Text("None", style: TextStyle(color: Colors.grey))));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          
+          // Widget for Winner Selection Row
+          Widget winnerRow(String title, List<String> currentList, Color color) {
+            String? selectedCandidate;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+                const SizedBox(height: 5),
+                // Chips
+                Wrap(
+                  spacing: 5,
+                  children: currentList.map((id) {
+                    String label = candidates.firstWhere((c) => c['id'] == id, orElse: () => {'label': id})['label']!;
+                    return Chip(
+                      label: Text(label, style: const TextStyle(fontSize: 11)),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () => setDialogState(() => currentList.remove(id)),
+                      backgroundColor: color.withOpacity(0.1),
+                    );
+                  }).toList(),
+                ),
+                // Add Dropdown
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: selectedCandidate,
+                        isDense: true,
+                        hint: const Text("Select to Add"),
+                        items: candidates.map((c) => DropdownMenuItem(value: c['id'], child: Text(c['label']!, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)))).toList(),
+                        onChanged: (v) {
+                          if (v != null && !currentList.contains(v)) {
+                            setDialogState(() => currentList.add(v));
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+            );
+          }
 
-    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
-      return AlertDialog(
-        title: Text(isEdit ? "Edit Result" : "Publish Result"),
-        content: SingleChildScrollView(
+          return AlertDialog(
+            title: Text(existingResult == null ? "Publish Result" : "Edit Result"),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Points
+                    const Text("Points Distribution", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Row(children: [
+                      Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "1st Pts"))), const SizedBox(width: 5),
+                      Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "2nd Pts"))), const SizedBox(width: 5),
+                      Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "3rd Pts"))),
+                    ]),
+                    const Divider(height: 20),
+                    // Winners
+                    winnerRow("🥇 First Position", firsts, Colors.amber.shade800),
+                    winnerRow("🥈 Second Position", seconds, Colors.blueGrey),
+                    winnerRow("🥉 Third Position", thirds, Colors.brown),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+              OutlinedButton(
+                onPressed: () => _saveResult(evt, p1Ctrl, p2Ctrl, p3Ctrl, firsts, seconds, thirds, 'archived', ctx),
+                child: const Text("Save to Archive"),
+              ),
+              ElevatedButton(
+                onPressed: () => _saveResult(evt, p1Ctrl, p2Ctrl, p3Ctrl, firsts, seconds, thirds, 'published', ctx),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                child: const Text("PUBLISH NOW"),
+              )
+            ],
+          );
+        }
+      ),
+    );
+  }
+
+  Future<void> _saveResult(DocumentSnapshot evt, TextEditingController p1, TextEditingController p2, TextEditingController p3, List firsts, List seconds, List thirds, String status, BuildContext ctx) async {
+    if (firsts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("At least one First Prize winner is required.")));
+      return;
+    }
+
+    Map<String, dynamic> data = {
+      'eventId': evt.id,
+      'eventName': evt['name'],
+      'category': evt['category'],
+      'type': evt['type'],
+      'status': status,
+      'points': { 'first': int.parse(p1.text), 'second': int.parse(p2.text), 'third': int.parse(p3.text) },
+      'winners': { 'first': firsts, 'second': seconds, 'third': thirds },
+      'publishedAt': FieldValue.serverTimestamp(),
+    };
+
+    await db.collection('results').doc(evt.id).set(data);
+    if(mounted) Navigator.pop(ctx);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Result $status successfully!")));
+  }
+
+  Future<void> _updateStatus(String id, String status) async {
+    await db.collection('results').doc(id).update({'status': status});
+  }
+
+  Future<void> _deleteResult(String id) async {
+    if(await showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("Delete?"), actions: [ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text("Yes"))])) ?? false) {
+      await db.collection('results').doc(id).delete();
+    }
+  }
+
+  // ==============================================================================
+  // SIMULATION MODAL
+  // ==============================================================================
+  void _openSimulationModal() {
+    // 1. Current Published Scores
+    Map<String, int> current = _calculateScores();
+    
+    // 2. Projected (Published + Selected Archived)
+    List<DocumentSnapshot> simResults = _results.where((r) => r['status'] == 'published' || _selectedForSimulation.contains(r.id)).toList();
+    Map<String, int> projected = _calculateScores(customResults: simResults);
+
+    // 3. Prepare Table Data
+    List<Map<String, dynamic>> tableData = [];
+    for (var t in _teams) {
+      int cur = current[t] ?? 0;
+      int proj = projected[t] ?? 0;
+      tableData.add({ 'team': t, 'current': cur, 'projected': proj, 'diff': proj - cur });
+    }
+    tableData.sort((a,b) => b['projected'].compareTo(a['projected'])); // Sort by projected
+
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text("Standings Simulation"),
+        content: SizedBox(
+          width: double.maxFinite,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(eventData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text("Projected Impact of ${_selectedForSimulation.length} events:", style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 10),
+              // Header
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(child: Text("Team", style: TextStyle(fontWeight: FontWeight.bold))),
+                  Text("Current", style: TextStyle(fontSize: 12)),
+                  SizedBox(width: 15),
+                  Text("New Total", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                ],
+              ),
               const Divider(),
-              // Points
-              Row(children: [
-                Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "1st Pts"))), const SizedBox(width: 5),
-                Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "2nd Pts"))), const SizedBox(width: 5),
-                Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "3rd Pts"))),
-              ]),
-              const SizedBox(height: 15),
-              // Winners
-              DropdownButtonFormField(value: first, items: items, onChanged: (v)=>setDialogState(()=>first=v), decoration: const InputDecoration(labelText: "🥇 First Prize")),
-              const SizedBox(height: 10),
-              DropdownButtonFormField(value: second, items: items, onChanged: (v)=>setDialogState(()=>second=v), decoration: const InputDecoration(labelText: "🥈 Second Prize")),
-              const SizedBox(height: 10),
-              DropdownButtonFormField(value: third, items: items, onChanged: (v)=>setDialogState(()=>third=v), decoration: const InputDecoration(labelText: "🥉 Third Prize")),
+              // Rows
+              ...tableData.map((d) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: Text(d['team'], style: const TextStyle(fontWeight: FontWeight.bold))),
+                    Text("${d['current']}", style: const TextStyle(color: Colors.grey)),
+                    const SizedBox(width: 15),
+                    Row(
+                      children: [
+                        Text("${d['projected']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        if(d['diff'] > 0)
+                          Text(" (+${d['diff']})", style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold))
+                      ],
+                    )
+                  ],
+                ),
+              )),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
-          ElevatedButton(onPressed: () async {
-            if (first == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("First Prize is required"))); return; }
-            
-            await db.collection('results').doc(eventId).set({
-              'eventId': eventId,
-              'eventName': eventData['name'],
-              'category': eventData['category'],
-              'type': eventData['type'],
-              'points': { 'first': int.parse(p1Ctrl.text), 'second': int.parse(p2Ctrl.text), 'third': int.parse(p3Ctrl.text) },
-              'winners': { 'first': first, 'second': second, 'third': third },
-              'publishedAt': FieldValue.serverTimestamp()
-            });
-            if(mounted) Navigator.pop(ctx);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Published!")));
-          }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text("PUBLISH"))
+          TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Close")),
+          ElevatedButton(
+            onPressed: () async {
+              var batch = db.batch();
+              for (var id in _selectedForSimulation) {
+                batch.update(db.collection('results').doc(id), {'status': 'published'});
+              }
+              await batch.commit();
+              setState(() => _selectedForSimulation.clear());
+              Navigator.pop(c);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("All selected results Published!")));
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            child: const Text("PUBLISH ALL"),
+          )
         ],
-      );
-    }));
-  }
-
-  Future<void> _deleteResult(String id) async {
-    if(await showDialog(context: context, builder: (c) => AlertDialog(title: const Text("Delete?"), actions: [ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text("Yes"))])) ?? false) {
-      await db.collection('results').doc(id).delete();
-    }
+      ),
+    );
   }
 }

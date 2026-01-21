@@ -1,6 +1,6 @@
 // File: lib/screens/events_tab.dart
-// Version: 4.0
-// Description: Highlighted Dropdowns, Detailed Event Cards showing ALL info.
+// Version: 5.0 (Final)
+// Description: Added Stage Filter, "All" option for every filter, and kept previous professional layout.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,11 +15,13 @@ class EventsTab extends StatefulWidget {
 class _EventsTabState extends State<EventsTab> {
   final db = FirebaseFirestore.instance;
 
-  // Filters
+  // ഫിൽറ്ററുകൾ (Filters)
   String? _filterCategory;
   String? _filterType; // Single/Group
+  String? _filterStage; // On-Stage/Off-Stage
+  String? _filterPart; // Participation
   
-  // Data Caches
+  // ഡാറ്റ കാഷെ
   List<DocumentSnapshot> _allEvents = [];
   List<String> _categories = [];
   bool _isMixedMode = true;
@@ -50,7 +52,7 @@ class _EventsTabState extends State<EventsTab> {
       }
     });
 
-    // 3. Events Listener (Real-time updates)
+    // 3. Events Listener
     db.collection('events').orderBy('createdAt', descending: true).snapshots().listen((snap) {
       if(mounted) {
         setState(() {
@@ -89,7 +91,7 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // 1. HIGHLIGHTED FILTER BAR
+  // 1. ADVANCED FILTER BAR (With All Options & Stage)
   Widget _buildAdvancedFilterBar() {
     return Card(
       elevation: 2,
@@ -98,28 +100,66 @@ class _EventsTabState extends State<EventsTab> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         child: Column(
           children: [
+            // Header Row (Reset Button)
             Row(
               children: [
                 const Icon(Icons.filter_list, color: Colors.indigo, size: 20),
                 const SizedBox(width: 8),
                 const Text("Filters:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const Spacer(),
-                // Clear Button
-                if (_filterCategory != null || _filterType != null)
+                if (_filterCategory != null || _filterType != null || _filterStage != null || _filterPart != null)
                   InkWell(
-                    onTap: () => setState(() { _filterCategory = null; _filterType = null; }),
-                    child: const Row(children: [Icon(Icons.clear_all, size: 16, color: Colors.red), Text("Reset", style: TextStyle(color: Colors.red, fontSize: 11))]),
+                    onTap: () => setState(() { _filterCategory = null; _filterType = null; _filterStage = null; _filterPart = null; }),
+                    child: const Row(children: [Icon(Icons.clear_all, size: 16, color: Colors.red), Text("Reset All", style: TextStyle(color: Colors.red, fontSize: 11))]),
                   )
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            
+            // Filters Row 1
             Row(
               children: [
                 // Category Filter
-                Expanded(child: _styledDropdown(value: _filterCategory, hint: "Category", items: ["General", ..._categories], onChanged: (v)=>setState(()=>_filterCategory=v))),
-                const SizedBox(width: 10),
+                Expanded(child: _styledDropdown(
+                  value: _filterCategory, 
+                  hint: "All Categories", 
+                  items: ["General", ..._categories], 
+                  onChanged: (v)=>setState(()=>_filterCategory=v)
+                )),
+                const SizedBox(width: 8),
                 // Type Filter
-                Expanded(child: _styledDropdown(value: _filterType, hint: "Type", items: ["Single", "Group"], onChanged: (v)=>setState(()=>_filterType=v?.toLowerCase()))),
+                Expanded(child: _styledDropdown(
+                  value: _filterType, 
+                  hint: "All Types", 
+                  items: ["Single", "Group"], 
+                  onChanged: (v)=>setState(()=>_filterType=v?.toLowerCase())
+                )),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Filters Row 2
+            Row(
+              children: [
+                // Stage Filter (NEW)
+                Expanded(child: _styledDropdown(
+                  value: _filterStage, 
+                  hint: "All Stages", 
+                  items: ["On-Stage", "Off-Stage"], 
+                  onChanged: (v)=>setState(()=>_filterStage=v)
+                )),
+                
+                // Gender Filter (Only Mixed)
+                if(_isMixedMode) ...[
+                  const SizedBox(width: 8),
+                  Expanded(child: _styledDropdown(
+                    value: _filterPart, 
+                    hint: "All Genders", 
+                    items: ["Open", "Boys", "Girls"], 
+                    displayItems: ["Common", "Boys Only", "Girls Only"], 
+                    onChanged: (v)=>setState(()=>_filterPart=v?.toLowerCase())
+                  )),
+                ] else 
+                  const Spacer(), // Empty space if not mixed to keep layout balanced
               ],
             )
           ],
@@ -128,40 +168,34 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // Custom Dropdown with Selection Highlight
-  Widget _styledDropdown({required String? value, required String hint, required List<String> items, required Function(String?) onChanged}) {
+  // Styled Dropdown with "All" logic
+  Widget _styledDropdown({required String? value, required String hint, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
     bool isSelected = value != null;
     return Container(
-      height: 45,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.indigo.shade50 : Colors.white, // Active Background
+        color: isSelected ? Colors.indigo.shade50 : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isSelected ? Colors.indigo : Colors.grey.shade300, // Active Border
-          width: isSelected ? 1.5 : 1
-        )
+        border: Border.all(color: isSelected ? Colors.indigo : Colors.grey.shade300)
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: value,
-          hint: Text("Select $hint", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          hint: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
           isExpanded: true,
-          icon: Icon(Icons.arrow_drop_down, color: isSelected ? Colors.indigo : Colors.grey),
-          items: items.map((item) {
-            return DropdownMenuItem(
-              value: item, 
-              child: Text(
-                item, 
-                style: TextStyle(
-                  fontSize: 13, 
-                  fontWeight: value == item ? FontWeight.bold : FontWeight.normal,
-                  color: value == item ? Colors.indigo : Colors.black87
-                ), 
-                overflow: TextOverflow.ellipsis
-              )
-            );
-          }).toList(),
+          icon: Icon(Icons.arrow_drop_down, color: isSelected ? Colors.indigo : Colors.grey, size: 20),
+          items: [
+            // "All" Option (Returns null to reset)
+            DropdownMenuItem(value: null, child: Text(hint, style: const TextStyle(fontSize: 12, color: Colors.grey))),
+            
+            // Other Items
+            ...items.asMap().entries.map((entry) {
+              String val = entry.value;
+              String text = (displayItems != null && displayItems.length > entry.key) ? displayItems[entry.key] : val;
+              return DropdownMenuItem(value: val, child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87), overflow: TextOverflow.ellipsis));
+            }),
+          ],
           onChanged: onChanged,
         ),
       ),
@@ -180,11 +214,13 @@ class _EventsTabState extends State<EventsTab> {
         final filteredDocs = _allEvents.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           
-          // Filters
+          // Filters Logic
           if (_filterCategory != null && data['category'] != _filterCategory) return false;
           if (_filterType != null && data['type'] != _filterType) return false;
+          if (_filterStage != null && data['stage'] != _filterStage) return false; // New Stage Logic
+          if (_filterPart != null && data['participation'] != _filterPart) return false;
           
-          // Search
+          // Search Logic
           if (searchQuery.isNotEmpty) {
             if (!data['name'].toString().toLowerCase().contains(searchQuery)) return false;
           }
@@ -205,7 +241,7 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // --- DETAILED EVENT CARD ---
+  // --- DETAILED EVENT CARD (Same as V4.0) ---
   Widget _buildDetailedEventCard(String docId, Map<String, dynamic> data) {
     bool isGroup = data['type'] == 'group';
     bool onStage = data['stage'] == 'On-Stage';
@@ -222,93 +258,40 @@ class _EventsTabState extends State<EventsTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header: Name & Actions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    data['name'], 
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                  ),
-                ),
+                Expanded(child: Text(data['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87))),
                 const SizedBox(width: 8),
-                // Edit Icon
                 InkWell(onTap: () => _openEventDialog(id: docId, data: data), child: const CircleAvatar(backgroundColor: Colors.blue, radius: 14, child: Icon(Icons.edit, size: 16, color: Colors.white))),
                 const SizedBox(width: 8),
-                // Delete Icon
                 InkWell(onTap: () => _deleteEvent(docId, data['name']), child: const CircleAvatar(backgroundColor: Colors.red, radius: 14, child: Icon(Icons.delete, size: 16, color: Colors.white))),
               ],
             ),
-            
             const SizedBox(height: 12),
-            
-            // Tags Row
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            Wrap(spacing: 8, runSpacing: 8, children: [
                 _infoBadge(data['category'], Colors.blueGrey, Icons.category),
-                _infoBadge(isGroup ? "Group Item" : "Single Item", isGroup ? Colors.purple : Colors.blue, isGroup ? Icons.groups : Icons.person),
+                _infoBadge(isGroup ? "Group" : "Single", isGroup ? Colors.purple : Colors.blue, isGroup ? Icons.groups : Icons.person),
                 _infoBadge(onStage ? "On-Stage" : "Off-Stage", Colors.orange.shade800, Icons.mic),
-                if(_isMixedMode) 
-                  _infoBadge(
-                    part == 'open' ? "Common" : "${part.toUpperCase()} Only", 
-                    part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal),
-                    part == 'girls' ? Icons.female : (part == 'boys' ? Icons.male : Icons.wc)
-                  ),
-              ],
-            ),
-            
+                if(_isMixedMode) _infoBadge(part == 'open' ? "Common" : "${part.toUpperCase()} Only", part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal), part == 'girls' ? Icons.female : (part == 'boys' ? Icons.male : Icons.wc)),
+            ]),
             const SizedBox(height: 16),
             const Divider(height: 1),
             const SizedBox(height: 12),
-            
-            // Details Grid (Points & Limits)
-            Row(
-              children: [
-                // Points Section
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("POINTS DISTRIBUTION", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.emoji_events, size: 16, color: Colors.amber),
-                          const SizedBox(width: 4),
-                          Text("1st: ${pts[0]}  2nd: ${pts[1]}  3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-                // Vertical Divider
-                Container(height: 30, width: 1, color: Colors.grey.shade300),
-                const SizedBox(width: 16),
-                // Limits Section
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("PARTICIPATION LIMITS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.info_outline, size: 16, color: Colors.blue),
-                          const SizedBox(width: 4),
-                          Text(
-                            isGroup ? "Max ${limits['maxTeams']} Teams (${limits['teamSize']}/Team)" : "Max ${limits['maxParticipants']} Students",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)
-                          ),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-              ],
-            )
+            Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text("POINTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 4),
+                Row(children: [const Icon(Icons.emoji_events, size: 16, color: Colors.amber), const SizedBox(width: 4), Text("1st: ${pts[0]}  2nd: ${pts[1]}  3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold))])
+              ])),
+              Container(height: 30, width: 1, color: Colors.grey.shade300),
+              const SizedBox(width: 16),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text("LIMITS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 4),
+                Row(children: [const Icon(Icons.info_outline, size: 16, color: Colors.blue), const SizedBox(width: 4), Text(isGroup ? "Max ${limits['maxTeams']} Teams" : "Max ${limits['maxParticipants']} Students", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))])
+              ])),
+            ])
           ],
         ),
       ),
@@ -318,19 +301,8 @@ class _EventsTabState extends State<EventsTab> {
   Widget _infoBadge(String text, Color color, IconData icon) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1), 
-        borderRadius: BorderRadius.circular(6), 
-        border: Border.all(color: color.withOpacity(0.3))
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color), 
-          const SizedBox(width: 4),
-          Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color)),
-        ],
-      ),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: color.withOpacity(0.3))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 12, color: color), const SizedBox(width: 4), Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color))]),
     );
   }
 
@@ -348,23 +320,13 @@ class _EventsTabState extends State<EventsTab> {
     String selStage = data?['stage'] ?? 'Off-Stage';
     String selPart = data?['participation'] ?? 'open';
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
           void onTypeChanged(String? v) {
             if(v == null) return;
             setDialogState(() {
               selType = v;
-              if (v == 'single') {
-                p1Ctrl.text = '5'; p2Ctrl.text = '3'; p3Ctrl.text = '1';
-                limit1Ctrl.text = '3';
-              } else {
-                p1Ctrl.text = '10'; p2Ctrl.text = '8'; p3Ctrl.text = '5';
-                limit1Ctrl.text = '2'; 
-                limit2Ctrl.text = '5';
-              }
+              if (v == 'single') { p1Ctrl.text = '5'; p2Ctrl.text = '3'; p3Ctrl.text = '1'; limit1Ctrl.text = '3'; } 
+              else { p1Ctrl.text = '10'; p2Ctrl.text = '8'; p3Ctrl.text = '5'; limit1Ctrl.text = '2'; limit2Ctrl.text = '5'; }
             });
           }
 
@@ -372,8 +334,7 @@ class _EventsTabState extends State<EventsTab> {
             title: Text(id == null ? "New Event" : "Edit Event"),
             scrollable: true,
             content: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name")),
-                const SizedBox(height: 10),
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name")), const SizedBox(height: 10),
                 DropdownButtonFormField<String>(value: selCategory, hint: const Text("Category"), items: [const DropdownMenuItem(value: "General", child: Text("General")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setDialogState(() => selCategory = v), decoration: const InputDecoration(labelText: "Category")),
                 const SizedBox(height: 10),
                 Row(children: [
@@ -383,11 +344,11 @@ class _EventsTabState extends State<EventsTab> {
                 ]),
                 if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField(value: selPart, items: const [DropdownMenuItem(value: "open", child: Text("Common")), DropdownMenuItem(value: "boys", child: Text("Boys Only")), DropdownMenuItem(value: "girls", child: Text("Girls Only"))], onChanged: (v) => setDialogState(() => selPart = v!), decoration: const InputDecoration(labelText: "Participation"))],
                 const SizedBox(height: 10),
-                const Text("Points (1st - 2nd - 3rd)", style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text("Points", style: TextStyle(fontWeight: FontWeight.bold)),
                 Row(children: [Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number))]),
                 const SizedBox(height: 10),
                 const Text("Limits", style: TextStyle(fontWeight: FontWeight.bold)),
-                if (selType == 'single') TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants per House"))
+                if (selType == 'single') TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants"))
                 else Row(children: [Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams"))), const SizedBox(width: 10), Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Size/Team")))])
             ]),
             actions: [

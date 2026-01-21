@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 4.0
-// Description: Dashboard Tab Linked.
+// Version: 5.0
+// Description: Added Publish Tab to navigation.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -9,9 +9,9 @@ import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
 import '../screens/students_tab.dart';
 import '../screens/events_tab.dart';
-import '../screens/dashboard_tab.dart'; // Dashboard Import ചെയ്തു
+import '../screens/dashboard_tab.dart';
+import '../screens/publish_tab.dart'; // Import Publish Tab
 
-// Global Search Notifier
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
 class ResponsiveMainLayout extends StatefulWidget {
@@ -27,17 +27,18 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   final _searchCtrl = TextEditingController();
   late AnimationController _menuAnimCtrl;
 
-  // സ്ക്രീനുകൾ (എല്ലാം ഇപ്പോൾ റെഡിയാണ്)
+  // സ്ക്രീനുകൾ (6 ടാബുകൾ)
   final List<Widget> _screens = [
-    const DashboardTab(), // Dashboard Active
+    const DashboardTab(),
     const StudentsTab(),
-    const EventsTab(), 
+    const EventsTab(),
+    const PublishTab(), // Publish Tab Added
     const WebConfigView(),
     const SettingsView(),
   ];
 
-  final List<String> _titles = ["Dashboard", "Students", "Events", "Web Config", "Settings"];
-  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.language, Icons.settings];
+  final List<String> _titles = ["Dashboard", "Students", "Events", "Publish", "Web Config", "Settings"];
+  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.emoji_events_outlined, Icons.language, Icons.settings];
 
   @override
   void initState() {
@@ -136,7 +137,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
           String tagline = data['tagline'] ?? '';
           String logoUrl = data['logoUrl'] ?? '';
 
-          bool allowSearch = (_idx == 1 || _idx == 2);
+          bool allowSearch = (_idx == 1 || _idx == 2); // Search only on Students(1) & Events(2)
 
           return Row(
             children: [

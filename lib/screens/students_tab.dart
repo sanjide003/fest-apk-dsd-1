@@ -1,11 +1,12 @@
 // File: lib/screens/students_tab.dart
-// Version: 3.2
-// Description: Fixed build error by removing dart:html and using ExportHelper.
+// Version: 3.3
+// Description: UI Improvements: Excel Icon with text, Styled Dropdowns, Gender Edit, Confirmations.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fest_manager/utils/export_helper.dart'; // Import helper
+import 'dart:convert';
 import '../layout/responsive_layout.dart';
+import 'package:fest_manager/utils/export_helper.dart'; // Ensure this helper exists from previous steps
 
 class StudentsTab extends StatefulWidget {
   const StudentsTab({super.key});
@@ -36,7 +37,7 @@ class _StudentsTabState extends State<StudentsTab> {
   }
 
   void _initDataListeners() {
-    // 1. Settings
+    // 1. Settings Listener
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
@@ -47,7 +48,7 @@ class _StudentsTabState extends State<StudentsTab> {
       }
     });
 
-    // 2. Mode
+    // 2. Mode Listener
     db.collection('config').doc('main').get().then((snap) {
       if (snap.exists && mounted) {
         setState(() {
@@ -56,7 +57,7 @@ class _StudentsTabState extends State<StudentsTab> {
       }
     });
 
-    // 3. Students
+    // 3. Students Listener
     db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
       if(mounted) {
         setState(() {
@@ -75,8 +76,11 @@ class _StudentsTabState extends State<StudentsTab> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // --- TOP ACTIONS CARD ---
             _buildActionCard(),
             const SizedBox(height: 16),
+            
+            // --- LIST ---
             Expanded(child: _buildStudentList()),
           ],
         ),
@@ -90,27 +94,108 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
+  // 1. ACTION CARD (Filters & Export)
   Widget _buildActionCard() {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(child: DropdownButtonFormField<String>(value: _filterTeam, decoration: const InputDecoration(labelText: "Team", isDense: true, contentPadding: EdgeInsets.all(10)), items: [const DropdownMenuItem(value: null, child: Text("All Teams")), ..._teams.map((t) => DropdownMenuItem(value: t, child: Text(t)))], onChanged: (v) => setState(() => _filterTeam = v))),
+            // Team Filter
+            Expanded(child: _styledDropdown(
+              value: _filterTeam, 
+              label: "Team", 
+              items: _teams, 
+              onChanged: (v) => setState(() => _filterTeam = v)
+            )),
             const SizedBox(width: 10),
-            Expanded(child: DropdownButtonFormField<String>(value: _filterCategory, decoration: const InputDecoration(labelText: "Category", isDense: true, contentPadding: EdgeInsets.all(10)), items: [const DropdownMenuItem(value: null, child: Text("All Categories")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setState(() => _filterCategory = v))),
-            const SizedBox(width: 10),
+            
+            // Category Filter
+            Expanded(child: _styledDropdown(
+              value: _filterCategory, 
+              label: "Category", 
+              items: _categories, 
+              onChanged: (v) => setState(() => _filterCategory = v)
+            )),
+            
+            // Gender Filter (If Mixed)
             if (_isMixedMode) ...[
-               Expanded(child: DropdownButtonFormField<String>(value: _filterGender, decoration: const InputDecoration(labelText: "Gender", isDense: true, contentPadding: EdgeInsets.all(10)), items: const [DropdownMenuItem(value: null, child: Text("All")), DropdownMenuItem(value: "Male", child: Text("Male")), DropdownMenuItem(value: "Female", child: Text("Female"))], onChanged: (v) => setState(() => _filterGender = v))),
                const SizedBox(width: 10),
+               Expanded(child: _styledDropdown(
+                 value: _filterGender, 
+                 label: "Gender", 
+                 items: ["Male", "Female"], 
+                 onChanged: (v) => setState(() => _filterGender = v)
+               )),
             ],
-            IconButton(onPressed: _exportToExcel, icon: const Icon(Icons.download, color: Colors.green), tooltip: "Export Excel"),
+            
+            const SizedBox(width: 15),
+            
+            // Excel Export Button
+            InkWell(
+              onTap: _exportToExcel,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.table_view, color: Colors.green, size: 24),
+                    SizedBox(height: 2),
+                    Text("Excel", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green))
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
+  // Custom Dropdown Builder (Handles Overflow & Styling)
+  Widget _styledDropdown({
+    required String? value, 
+    required String label, 
+    required List<String> items, 
+    required Function(String?) onChanged
+  }) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      isExpanded: true, // Prevents overflow
+      menuMaxHeight: 300, // Limits menu height
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      items: [
+        DropdownMenuItem(value: null, child: Text("All $label", style: const TextStyle(color: Colors.grey, fontSize: 13))),
+        ...items.map((item) => DropdownMenuItem(
+          value: item,
+          child: FittedBox( // Auto-shrinks text if too long
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(item),
+          ),
+        ))
+      ],
+      onChanged: onChanged,
+    );
+  }
+
+  // 2. STUDENT LIST
   Widget _buildStudentList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_allStudents.isEmpty) return const Center(child: Text("No students found."));
@@ -161,6 +246,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
+  // 3. REGISTER DIALOG
   void _openAddStudentDialog() {
     String? selTeam;
     String? selCat;
@@ -216,9 +302,9 @@ class _StudentsTabState extends State<StudentsTab> {
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
                Row(children: [
-                 Expanded(child: DropdownButtonFormField(value: selTeam, hint: const Text("Team"), items: _teams.map((e)=>DropdownMenuItem(value:e, child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selTeam=v.toString()); calcInstantChest(setDialogState); })),
+                 Expanded(child: _styledDropdown(value: selTeam, label: "Team", items: _teams, onChanged: (v){ setDialogState(()=>selTeam=v); calcInstantChest(setDialogState); })),
                  const SizedBox(width: 10),
-                 Expanded(child: DropdownButtonFormField(value: selCat, hint: const Text("Category"), items: _categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v){ setDialogState(()=>selCat=v.toString()); calcInstantChest(setDialogState); })),
+                 Expanded(child: _styledDropdown(value: selCat, label: "Category", items: _categories, onChanged: (v){ setDialogState(()=>selCat=v); calcInstantChest(setDialogState); })),
                ]),
                if(_isMixedMode) ...[
                  const SizedBox(height: 10),
@@ -256,43 +342,85 @@ class _StudentsTabState extends State<StudentsTab> {
     }));
   }
 
+  // 4. EDIT DIALOG (WITH CANCEL & UPDATE)
   void _openEditDialog(String id, Map d) {
     final nCtrl = TextEditingController(text: d['name']);
     final cCtrl = TextEditingController(text: d['chestNo'].toString());
-    String team = d['teamId']; String cat = d['categoryId']; String gen = d['gender']??'Male';
+    String team = d['teamId']; 
+    String cat = d['categoryId']; 
+    String gen = d['gender'] ?? 'Male';
     
-    showDialog(context: context, builder: (ctx)=>AlertDialog(title: const Text("Edit"), content: Column(mainAxisSize: MainAxisSize.min, children: [
-       TextField(controller: nCtrl, decoration: const InputDecoration(labelText: "Name")),
-       DropdownButtonFormField(value: team, items: _teams.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v)=>team=v.toString()),
-       DropdownButtonFormField(value: cat, items: _categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(), onChanged: (v)=>cat=v.toString()),
-       TextField(controller: cCtrl, decoration: const InputDecoration(labelText: "Chest No (Manual)")),
-    ]), actions: [
-       ElevatedButton(onPressed: () async {
-         await db.collection('students').doc(id).update({'name':nCtrl.text,'teamId':team,'categoryId':cat,'chestNo':int.parse(cCtrl.text),'gender':gen});
-         if(mounted) Navigator.pop(ctx);
-       }, child: const Text("Update"))
-    ]));
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          title: const Text("Edit Student"),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+             TextField(controller: nCtrl, decoration: const InputDecoration(labelText: "Name")),
+             const SizedBox(height: 10),
+             // Team & Cat
+             Row(children: [
+               Expanded(child: _styledDropdown(value: team, label: "Team", items: _teams, onChanged: (v) => setDialogState(() => team = v!))),
+               const SizedBox(width: 10),
+               Expanded(child: _styledDropdown(value: cat, label: "Category", items: _categories, onChanged: (v) => setDialogState(() => cat = v!))),
+             ]),
+             const SizedBox(height: 10),
+             // Gender Edit (If Mixed)
+             if(_isMixedMode)
+               Row(children: [
+                 const Text("Gender: "),
+                 Radio(value: "Male", groupValue: gen, onChanged: (v) => setDialogState(() => gen = v.toString())), const Text("M"),
+                 Radio(value: "Female", groupValue: gen, onChanged: (v) => setDialogState(() => gen = v.toString())), const Text("F"),
+               ]),
+             const SizedBox(height: 10),
+             TextField(controller: cCtrl, decoration: const InputDecoration(labelText: "Chest No (Manual)")),
+          ]), 
+          actions: [
+             // Cancel & Update Buttons
+             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+             ElevatedButton(
+               onPressed: () async {
+                 await db.collection('students').doc(id).update({'name':nCtrl.text,'teamId':team,'categoryId':cat,'chestNo':int.parse(cCtrl.text),'gender':gen});
+                 if(mounted) Navigator.pop(ctx);
+                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Updated Successfully")));
+               }, 
+               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+               child: const Text("Update")
+             )
+          ]
+        );
+      }
+    ));
   }
 
+  // 5. DELETE DIALOG
   Future<void> _deleteStudent(String id, String n) async {
-    if(await showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("Delete?"), content: Text(n), actions: [ElevatedButton(onPressed: ()=>Navigator.pop(c,true), child: const Text("Yes"))])) ?? false) {
+    if(await showDialog(context: context, builder: (c)=>AlertDialog(
+      title: const Text("Delete Student?"), 
+      content: Text("Are you sure you want to delete '$n'?"), 
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(c,false), child: const Text("Cancel")),
+        ElevatedButton(onPressed: ()=>Navigator.pop(c,true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Delete"))
+      ]
+    )) ?? false) {
       await db.collection('students').doc(id).delete();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Deleted")));
     }
   }
 
-  // Updated to use ExportHelper
+  // 6. EXPORT (Specific Order)
   Future<void> _exportToExcel() async {
     if (_allStudents.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No data to export")));
       return;
     }
+    // ORDER: Chest No, Name, Team, Category, Gender
     String csv = "Chest No,Name,Team,Category,Gender\n";
     for(var d in _allStudents) { 
       var m = d.data() as Map; 
       csv+="${m['chestNo']},${m['name']},${m['teamId']},${m['categoryId']},${m['gender']}\n"; 
     }
     
-    // Using the helper for cross-platform support
+    // Cross-platform helper
     await ExportHelper.downloadCsv(csv, "students_list.csv");
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Export downloaded!")));
   }

@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 5.1
-// Description: Fixed Search Visibility. Added Google-style expanding search bar animation.
+// Version: 6.0
+// Description: Floating Header with Rounded Corners. Search icon left of Logo, expands to left keeping Tab Name visible.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -72,7 +72,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
-      // Close Search on tab change
       if (_isSearchExpanded) _toggleSearch();
     });
   }
@@ -102,7 +101,10 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
         children: [
           Column(
             children: [
-              _buildHeader(isWeb),
+              // HEADER (Now Floating)
+              _buildFloatingHeader(isWeb),
+              
+              // BODY
               Expanded(
                 child: Row(
                   children: [
@@ -119,14 +121,16 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
               ),
             ],
           ),
+          
+          // DROPDOWN MENU
           if (_isMenuOpen && !isWeb)
             Positioned(
-              top: 70, left: 10,
+              top: 80, // Adjusted for floating header
+              left: 16,
               child: Material(
-                elevation: 8, borderRadius: BorderRadius.circular(12), color: Colors.white,
+                elevation: 8, borderRadius: BorderRadius.circular(16), color: Colors.white,
                 child: Container(
-                  width: 250, padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
+                  width: 200, padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(_titles.length, (i) => ListTile(
@@ -140,19 +144,25 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
                 ),
               ),
             ),
+            
           if (_isMenuOpen && !isWeb)
-            Positioned(top: 70, left: 270, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
+            Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
         ],
       ),
     );
   }
 
-  Widget _buildHeader(bool isWeb) {
+  Widget _buildFloatingHeader(bool isWeb) {
     bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 3); // Students, Events, Publish
 
     return Container(
-      height: 70,
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
+      height: 60,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8), // FLOATING MARGINS
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30), // ROUNDED SHAPE
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
       child: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance.collection('settings').doc('home_config').snapshots(),
         builder: (context, snap) {
@@ -161,94 +171,88 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           String tagline = data['tagline'] ?? '';
           String logoUrl = data['logoUrl'] ?? '';
 
-          return Stack(
-            alignment: Alignment.center,
+          return Row(
             children: [
-              // 1. BASE LAYER (Menu, Title, Logo) - Fades out when search expands
-              AnimatedOpacity(
-                opacity: _isSearchExpanded ? 0.0 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                child: Row(
+              const SizedBox(width: 8),
+              
+              // 1. HAMBURGER (Mobile)
+              if (!isWeb)
+                IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), onPressed: _toggleMenu),
+
+              // 2. TAB NAME (Always Visible on Left)
+              Padding(
+                padding: const EdgeInsets.only(left: 8, right: 16),
+                child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+              ),
+
+              // 3. CENTER AREA (Title <-> Search Bar Animation)
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.centerRight, // Align search to right to expand left
                   children: [
-                    if (!isWeb)
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, size: 28, color: Colors.indigo), onPressed: _toggleMenu)),
-
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8, right: 16),
-                      child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
-                    ),
-
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
-                          if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal, color: Colors.grey)),
-                        ],
+                    // A. Fest Title (Fades out when search opens)
+                    AnimatedOpacity(
+                      opacity: _isSearchExpanded ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                            if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.normal, color: Colors.grey)),
+                          ],
+                        ),
                       ),
                     ),
 
-                    // Placeholder for spacing to match right side
-                    const SizedBox(width: 48), 
-                    
-                    if (logoUrl.isNotEmpty)
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 20))
-                    else
-                      const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Icon(Icons.school, color: Colors.grey, size: 30)),
+                    // B. Search Bar (Expands from Right to Left)
+                    if (allowSearch)
+                      AnimatedBuilder(
+                        animation: _searchWidthAnim,
+                        builder: (context, child) {
+                          return FractionallySizedBox(
+                            widthFactor: _searchWidthAnim.value, // 0 to 1 width
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              height: 40,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.indigo.withOpacity(0.3))
+                              ),
+                              child: TextField(
+                                controller: _searchCtrl,
+                                focusNode: _searchFocus,
+                                decoration: const InputDecoration(
+                                  hintText: "Search...",
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Adjusted padding
+                                  isDense: true,
+                                ),
+                                onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
 
-              // 2. SEARCH LAYER (Right Aligned, Expands Left)
+              // 4. SEARCH ICON (Left of Logo)
               if (allowSearch)
-                Positioned(
-                  right: 16,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Expandable Search Field
-                      AnimatedBuilder(
-                        animation: _searchWidthAnim,
-                        builder: (context, child) {
-                          // Calculate width based on screen size (Max 300 or full minus padding)
-                          double maxWidth = MediaQuery.of(context).size.width - 80; 
-                          if (maxWidth > 400) maxWidth = 400;
-                          
-                          return Container(
-                            width: _searchWidthAnim.value * maxWidth,
-                            height: 45,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24), // Pill shape like Google
-                              border: Border.all(color: Colors.grey.shade300),
-                              boxShadow: [if(_isSearchExpanded) BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))]
-                            ),
-                            alignment: Alignment.centerLeft,
-                            child: _isSearchExpanded ? TextField(
-                              controller: _searchCtrl,
-                              focusNode: _searchFocus,
-                              decoration: const InputDecoration(
-                                hintText: "Search...",
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                isDense: true,
-                              ),
-                              onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
-                            ) : null,
-                          );
-                        },
-                      ),
-                      
-                      // Search Toggle Icon
-                      IconButton(
-                        onPressed: _toggleSearch,
-                        icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, color: Colors.indigo),
-                        tooltip: _isSearchExpanded ? "Close" : "Search",
-                      ),
-                    ],
-                  ),
+                IconButton(
+                  icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, color: Colors.grey.shade700),
+                  onPressed: _toggleSearch,
+                  tooltip: _isSearchExpanded ? "Close" : "Search",
                 ),
+
+              // 5. LOGO (Far Right)
+              if (logoUrl.isNotEmpty)
+                Padding(padding: const EdgeInsets.only(right: 12, left: 4), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
+              else
+                const Padding(padding: EdgeInsets.only(right: 12, left: 4), child: Icon(Icons.school, color: Colors.grey, size: 28)),
             ],
           );
         },

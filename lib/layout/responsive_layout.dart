@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 3.0
-// Description: Expanding Search Bar in Header. Search Query is managed globally.
+// Version: 3.1
+// Description: സെർച്ച് ബാർ Students ടാബിൽ മാത്രം കാണിക്കുന്നു.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -9,7 +9,7 @@ import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
 import '../screens/students_tab.dart';
 
-// ആപ്പിലുടനീളം സെർച്ച് ലഭിക്കാൻ ഒരു ഗ്ലോബൽ നോട്ടിഫയർ
+// Global Search Notifier
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
 // Placeholders
@@ -23,9 +23,9 @@ class ResponsiveMainLayout extends StatefulWidget {
 }
 
 class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with SingleTickerProviderStateMixin {
-  int _idx = 0;
+  int _idx = 0; // 0:Dash, 1:Students, 2:Events, 3:Web, 4:Settings
   bool _isMenuOpen = false;
-  bool _isSearchExpanded = false; // സെർച്ച് ബാർ തുറന്നിട്ടുണ്ടോ?
+  bool _isSearchExpanded = false;
   final _searchCtrl = TextEditingController();
   late AnimationController _menuAnimCtrl;
 
@@ -64,7 +64,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
-      // ടാബ് മാറുമ്പോൾ സെർച്ച് ക്ലിയർ ചെയ്യുന്നു
+      // ടാബ് മാറുമ്പോൾ സെർച്ച് റീസെറ്റ് ചെയ്യുന്നു
       _isSearchExpanded = false;
       _searchCtrl.clear();
       globalSearchQuery.value = "";
@@ -148,7 +148,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                 child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
               ),
 
-              // CENTER: Fest Name OR Search Bar
               Expanded(
                 child: _isSearchExpanded
                 ? TextField(
@@ -172,8 +171,8 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                   ),
               ),
 
-              // RIGHT: Search Icon & Logo
-              if (!_isSearchExpanded)
+              // SEARCH ICON (Only visible if idx == 1 i.e., Students Tab)
+              if (!_isSearchExpanded && _idx == 1)
                 IconButton(
                   icon: const Icon(Icons.search, color: Colors.grey),
                   onPressed: () => setState(() => _isSearchExpanded = true),

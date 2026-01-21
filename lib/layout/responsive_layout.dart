@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 6.0
-// Description: Floating Header with Rounded Corners. Search icon left of Logo, expands to left keeping Tab Name visible.
+// Version: 7.0
+// Description: Floating Header where Search Expands to fill space between Hamburger and Logo (Hiding Title & Tab Name).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -28,8 +28,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   final FocusNode _searchFocus = FocusNode();
   
   late AnimationController _menuAnimCtrl;
-  late AnimationController _searchAnimCtrl;
-  late Animation<double> _searchWidthAnim;
 
   final List<Widget> _screens = [
     const DashboardTab(),
@@ -47,14 +45,11 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   void initState() {
     super.initState();
     _menuAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
-    _searchAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
-    _searchWidthAnim = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _searchAnimCtrl, curve: Curves.easeInOut));
   }
 
   @override
   void dispose() {
     _menuAnimCtrl.dispose();
-    _searchAnimCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -72,22 +67,23 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
-      if (_isSearchExpanded) _toggleSearch();
+      if (_isSearchExpanded) _closeSearch();
     });
   }
 
-  void _toggleSearch() {
+  void _openSearch() {
     setState(() {
-      _isSearchExpanded = !_isSearchExpanded;
-      if (_isSearchExpanded) {
-        _searchAnimCtrl.forward();
-        _searchFocus.requestFocus();
-      } else {
-        _searchAnimCtrl.reverse();
-        _searchCtrl.clear();
-        globalSearchQuery.value = "";
-        _searchFocus.unfocus();
-      }
+      _isSearchExpanded = true;
+      _searchFocus.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _isSearchExpanded = false;
+      _searchCtrl.clear();
+      globalSearchQuery.value = "";
+      _searchFocus.unfocus();
     });
   }
 
@@ -101,7 +97,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
         children: [
           Column(
             children: [
-              // HEADER (Now Floating)
+              // FLOATING HEADER
               _buildFloatingHeader(isWeb),
               
               // BODY
@@ -125,7 +121,7 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
           // DROPDOWN MENU
           if (_isMenuOpen && !isWeb)
             Positioned(
-              top: 80, // Adjusted for floating header
+              top: 80,
               left: 16,
               child: Material(
                 elevation: 8, borderRadius: BorderRadius.circular(16), color: Colors.white,
@@ -157,10 +153,10 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
 
     return Container(
       height: 60,
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8), // FLOATING MARGINS
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(30), // ROUNDED SHAPE
+        borderRadius: BorderRadius.circular(30),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: StreamBuilder<DocumentSnapshot>(
@@ -175,87 +171,89 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
             children: [
               const SizedBox(width: 8),
               
-              // 1. HAMBURGER (Mobile)
+              // 1. HAMBURGER (Always Visible on Mobile)
               if (!isWeb)
-                IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), onPressed: _toggleMenu),
-
-              // 2. TAB NAME (Always Visible on Left)
-              Padding(
-                padding: const EdgeInsets.only(left: 8, right: 16),
-                child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
-              ),
-
-              // 3. CENTER AREA (Title <-> Search Bar Animation)
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.centerRight, // Align search to right to expand left
-                  children: [
-                    // A. Fest Title (Fades out when search opens)
-                    AnimatedOpacity(
-                      opacity: _isSearchExpanded ? 0.0 : 1.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-                            if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.normal, color: Colors.grey)),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // B. Search Bar (Expands from Right to Left)
-                    if (allowSearch)
-                      AnimatedBuilder(
-                        animation: _searchWidthAnim,
-                        builder: (context, child) {
-                          return FractionallySizedBox(
-                            widthFactor: _searchWidthAnim.value, // 0 to 1 width
-                            alignment: Alignment.centerRight,
-                            child: Container(
-                              height: 40,
-                              margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.indigo.withOpacity(0.3))
-                              ),
-                              child: TextField(
-                                controller: _searchCtrl,
-                                focusNode: _searchFocus,
-                                decoration: const InputDecoration(
-                                  hintText: "Search...",
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Adjusted padding
-                                  isDense: true,
-                                ),
-                                onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-              ),
-
-              // 4. SEARCH ICON (Left of Logo)
-              if (allowSearch)
                 IconButton(
-                  icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, color: Colors.grey.shade700),
-                  onPressed: _toggleSearch,
-                  tooltip: _isSearchExpanded ? "Close" : "Search",
+                  icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), 
+                  onPressed: _toggleMenu
                 ),
 
-              // 5. LOGO (Far Right)
+              // 2. MIDDLE SECTION (Swaps between Title+TabName and SearchBar)
+              Expanded(
+                child: _isSearchExpanded
+                  ? _buildSearchBar() // Search Bar Takes Full Space
+                  : _buildNormalHeaderContent(festName, tagline, allowSearch), // Title & Tab Name
+              ),
+
+              // 3. LOGO (Always Visible)
               if (logoUrl.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(right: 12, left: 4), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
+                Padding(padding: const EdgeInsets.only(right: 12, left: 8), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
               else
-                const Padding(padding: EdgeInsets.only(right: 12, left: 4), child: Icon(Icons.school, color: Colors.grey, size: 28)),
+                const Padding(padding: EdgeInsets.only(right: 12, left: 8), child: Icon(Icons.school, color: Colors.grey, size: 28)),
             ],
           );
         },
+      ),
+    );
+  }
+
+  // സാധാരണ ഹെഡർ (സെർച്ച് അല്ലാത്തപ്പോൾ)
+  Widget _buildNormalHeaderContent(String festName, String tagline, bool allowSearch) {
+    return Row(
+      children: [
+        // Tab Name
+        Padding(
+          padding: const EdgeInsets.only(left: 8, right: 16),
+          child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+        ),
+        
+        // Fest Title (Center)
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+              if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.normal, color: Colors.grey)),
+            ],
+          ),
+        ),
+
+        // Search Icon (Button to Expand)
+        if (allowSearch)
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.grey),
+            onPressed: _openSearch,
+            tooltip: "Search",
+          ),
+      ],
+    );
+  }
+
+  // എക്സ്പാൻഡ് ചെയ്ത സെർച്ച് ബാർ
+  Widget _buildSearchBar() {
+    return Container(
+      height: 40,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.indigo.withOpacity(0.3))
+      ),
+      child: TextField(
+        controller: _searchCtrl,
+        focusNode: _searchFocus,
+        decoration: InputDecoration(
+          hintText: "Search...",
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          isDense: true,
+          // Close Button inside Search Bar
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+            onPressed: _closeSearch,
+          ),
+        ),
+        onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
       ),
     );
   }

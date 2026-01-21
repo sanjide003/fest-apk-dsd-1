@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 3.2
-// Description: Events Tab ലിങ്ക് ചെയ്തു. Dashboard ഒഴികെ ബാക്കി എല്ലാം ഇപ്പോൾ പ്രവർത്തനസജ്ജമാണ്.
+// Version: 3.4
+// Description: Search Bar Fix (Visible on Students & Events), Styled Search Field with Border.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -8,12 +8,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/settings_tab.dart';
 import '../screens/web_config_tab.dart';
 import '../screens/students_tab.dart';
-import '../screens/events_tab.dart'; // Events Tab ഇമ്പോർട്ട് ചെയ്തു
+import '../screens/events_tab.dart';
 
 // Global Search Notifier
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
-// Dashboard മാത്രം ഇപ്പോൾ Placeholder ആണ്
 class DashboardTab extends StatelessWidget { const DashboardTab({super.key}); @override Widget build(BuildContext context) => const Center(child: Text("Dashboard Coming Soon")); }
 
 class ResponsiveMainLayout extends StatefulWidget {
@@ -29,11 +28,10 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
   final _searchCtrl = TextEditingController();
   late AnimationController _menuAnimCtrl;
 
-  // സ്ക്രീനുകൾ (EventsTab ഇപ്പോൾ റിയൽ ഫയൽ ആണ്)
   final List<Widget> _screens = [
     const DashboardTab(),
     const StudentsTab(),
-    const EventsTab(), 
+    const EventsTab(),
     const WebConfigView(),
     const SettingsView(),
   ];
@@ -138,29 +136,50 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
           String tagline = data['tagline'] ?? '';
           String logoUrl = data['logoUrl'] ?? '';
 
+          // Check if Search is allowed on this tab (Students=1, Events=2)
+          bool allowSearch = (_idx == 1 || _idx == 2);
+
           return Row(
             children: [
               if (!isWeb)
                 Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, size: 28, color: Colors.indigo), onPressed: _toggleMenu)),
 
-              Padding(
-                padding: const EdgeInsets.only(left: 8, right: 16),
-                child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
-              ),
+              // Tab Name (Hide if Search is Expanded)
+              if (!_isSearchExpanded)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, right: 16),
+                  child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
+                ),
 
+              // CENTER: Title OR Expanded Search Bar
               Expanded(
                 child: _isSearchExpanded
-                ? TextField(
-                    controller: _searchCtrl,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: "Search...",
-                      border: InputBorder.none,
-                      suffixIcon: IconButton(icon: const Icon(Icons.close), onPressed: (){
-                        setState(() { _isSearchExpanded = false; _searchCtrl.clear(); globalSearchQuery.value = ""; });
-                      })
+                ? Container(
+                    height: 45,
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.indigo.shade200), // Border Added
                     ),
-                    onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      autofocus: true,
+                      textAlignVertical: TextAlignVertical.center,
+                      decoration: InputDecoration(
+                        hintText: "Search...",
+                        border: InputBorder.none,
+                        prefixIcon: const Icon(Icons.search, color: Colors.indigo, size: 20),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.grey, size: 20), 
+                          onPressed: (){
+                            setState(() { _isSearchExpanded = false; _searchCtrl.clear(); globalSearchQuery.value = ""; });
+                          }
+                        ),
+                        contentPadding: const EdgeInsets.only(bottom: 5),
+                      ),
+                      onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
+                    ),
                   )
                 : Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -171,12 +190,15 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Single
                   ),
               ),
 
-              if (!_isSearchExpanded && _idx == 1)
+              // RIGHT: Search Icon & Logo
+              if (!_isSearchExpanded && allowSearch)
                 IconButton(
                   icon: const Icon(Icons.search, color: Colors.grey),
                   onPressed: () => setState(() => _isSearchExpanded = true),
+                  tooltip: "Search",
                 ),
 
+              // Logo (Always Visible unless obscured by something else, but here we keep it)
               if (logoUrl.isNotEmpty)
                 Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 20))
               else

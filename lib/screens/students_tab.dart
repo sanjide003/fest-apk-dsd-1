@@ -1,6 +1,6 @@
 // File: lib/screens/students_tab.dart
-// Version: 4.0
-// Description: Memory Leak Fixed, Search Optimized (Debounce), Better UI.
+// Version: 5.0
+// Description: Restored Gender Icons, Category Icons, and robust search logic.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -29,7 +29,7 @@ class _StudentsTabState extends State<StudentsTab> {
   
   // Data Caches
   List<DocumentSnapshot> _allStudents = [];
-  List<DocumentSnapshot> _filteredStudents = []; // Separate list for display
+  List<DocumentSnapshot> _filteredStudents = [];
   Map<String, dynamic> _chestConfig = {};
   List<String> _teams = [];
   List<String> _categories = [];
@@ -40,7 +40,6 @@ class _StudentsTabState extends State<StudentsTab> {
   void initState() {
     super.initState();
     _initDataListeners();
-    // Listen to global search changes with Debounce
     globalSearchQuery.addListener(_onSearchChanged);
   }
 
@@ -52,13 +51,12 @@ class _StudentsTabState extends State<StudentsTab> {
     super.dispose();
   }
 
-  // Optimized Search Logic
   void _onSearchChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       setState(() {
         _currentSearch = globalSearchQuery.value.toLowerCase();
-        _applyFilters(); // Re-filter only after user stops typing
+        _applyFilters();
       });
     });
   }
@@ -84,14 +82,14 @@ class _StudentsTabState extends State<StudentsTab> {
       }
     });
 
-    // 3. Students (Load All)
+    // 3. Students
     _streams.add(db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
       if(mounted) {
         setState(() {
           _allStudents = snap.docs;
           _isLoading = false;
         });
-        _applyFilters(); // Apply filter when new data arrives
+        _applyFilters();
       }
     }));
   }
@@ -110,7 +108,6 @@ class _StudentsTabState extends State<StudentsTab> {
           String chest = data['chestNo'].toString();
           if (!name.contains(_currentSearch) && !chest.contains(_currentSearch)) return false;
         }
-        
         return true;
       }).toList();
     });
@@ -124,11 +121,11 @@ class _StudentsTabState extends State<StudentsTab> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // FILTERS & EXPORT
+            // FILTERS
             _buildActionCard(),
             const SizedBox(height: 16),
             
-            // STUDENT LIST
+            // LIST
             Expanded(child: _buildStudentList()),
           ],
         ),
@@ -136,9 +133,8 @@ class _StudentsTabState extends State<StudentsTab> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddStudentDialog,
         backgroundColor: Colors.indigo,
-        elevation: 4,
-        icon: const Icon(Icons.person_add, color: Colors.white),
-        label: const Text("REGISTER STUDENT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+        label: const Text("REGISTER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -160,13 +156,12 @@ class _StudentsTabState extends State<StudentsTab> {
             if (_isMixedMode)
                SizedBox(width: 120, child: _styledDropdown(value: _filterGender, label: "Gender", items: ["Male", "Female"], onChanged: (v) { _filterGender = v; _applyFilters(); })),
             
-            // Excel Export
             InkWell(
               onTap: _exportToExcel,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green.withOpacity(0.3))),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.download, size: 18, color: Colors.green), SizedBox(width: 6), Text("Excel", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))]),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.table_chart, size: 18, color: Colors.green), SizedBox(width: 6), Text("Excel", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))]),
               ),
             ),
           ],
@@ -182,11 +177,10 @@ class _StudentsTabState extends State<StudentsTab> {
         labelText: label, isDense: true, filled: true, fillColor: Colors.grey.shade50,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
       ),
       items: [
-        DropdownMenuItem(value: null, child: Text("All", style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
-        ...items.map((item) => DropdownMenuItem(value: item, child: Text(item, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))))
+        DropdownMenuItem(value: null, child: Text("All", style: TextStyle(color: Colors.grey.shade600))),
+        ...items.map((item) => DropdownMenuItem(value: item, child: Text(item, overflow: TextOverflow.ellipsis)))
       ],
       onChanged: onChanged,
     );
@@ -195,7 +189,7 @@ class _StudentsTabState extends State<StudentsTab> {
   // 2. STUDENT LIST
   Widget _buildStudentList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_filteredStudents.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.search_off, size: 48, color: Colors.grey.shade300), const SizedBox(height: 10), const Text("No students found.", style: TextStyle(color: Colors.grey))]));
+    if (_filteredStudents.isEmpty) return const Center(child: Text("No students found."));
 
     return ListView.builder(
       itemCount: _filteredStudents.length,
@@ -203,32 +197,53 @@ class _StudentsTabState extends State<StudentsTab> {
       itemBuilder: (context, index) {
         var data = _filteredStudents[index].data() as Map<String, dynamic>;
         String docId = _filteredStudents[index].id;
+        String gender = data['gender'] ?? 'Male';
+        bool isMale = gender == 'Male';
         
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.grey.shade200)),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             leading: Container(
               width: 50, height: 50,
               alignment: Alignment.center,
-              decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade50, 
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.indigo.withOpacity(0.1))
+              ),
               child: Text(data['chestNo'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)),
             ),
             title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             subtitle: Row(
               children: [
-                Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)), child: Text(data['teamId'], style: const TextStyle(fontSize: 11, color: Colors.black87))),
-                const SizedBox(width: 6),
-                Text("•  ${data['categoryId']}  ${_isMixedMode ? "• ${data['gender']}" : ""}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                // Team Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                  child: Text(data['teamId'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 8),
+                // Category
+                const Icon(Icons.category, size: 12, color: Colors.grey),
+                const SizedBox(width: 2),
+                Text(data['categoryId'], style: const TextStyle(fontSize: 12)),
+                const SizedBox(width: 8),
+                // Gender Icon
+                if(_isMixedMode) ...[
+                   Icon(isMale ? Icons.male : Icons.female, size: 14, color: isMale ? Colors.blue : Colors.pink),
+                   const SizedBox(width: 2),
+                   Text(isMale ? "M" : "F", style: TextStyle(fontSize: 12, color: isMale ? Colors.blue : Colors.pink, fontWeight: FontWeight.bold))
+                ]
               ],
             ),
-            trailing: PopupMenuButton(
-              onSelected: (v) => v == 'edit' ? _openEditDialog(docId, data) : _deleteStudent(docId, data['name']),
-              itemBuilder: (c) => [
-                const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18, color: Colors.blue), SizedBox(width: 8), Text("Edit")])),
-                const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text("Delete")])),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(icon: const Icon(Icons.edit, color: Colors.blue, size: 20), onPressed: () => _openEditDialog(docId, data)),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: () => _deleteStudent(docId, data['name'])),
               ],
             ),
           ),
@@ -237,7 +252,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 3. ADD DIALOG (Same Logic, Better UI)
+  // 3. ADD DIALOG
   void _openAddStudentDialog() {
     String? selTeam;
     String? selCat;
@@ -261,7 +276,7 @@ class _StudentsTabState extends State<StudentsTab> {
         setDialogState(() => errorMsg = null);
       }
 
-      // Local calculation for instant feedback
+      // Calc Max
       int maxVal = startVal;
       bool found = false;
       for (var doc in _allStudents) {
@@ -364,7 +379,6 @@ class _StudentsTabState extends State<StudentsTab> {
     }
   }
 
-  // 6. EXPORT
   Future<void> _exportToExcel() async {
     if (_filteredStudents.isEmpty) return;
     String csv = "Chest No,Name,Team,Category,Gender\n";

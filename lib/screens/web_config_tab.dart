@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 3.0
-// Description: Fixed Null Safety Build Errors (removed unnecessary bang operator).
+// Version: 4.0
+// Description: Fixed 'padding' parameter error in Card widget.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -59,14 +59,12 @@ class _WebConfigViewState extends State<WebConfigView> {
         _aboutSubCtrl.text = data['aboutSubtitle'] ?? '';
         _aboutTextCtrl.text = data['aboutText'] ?? '';
         
-        // Load Maps/Lists safely
         _socialLinks = Map<String, String>.from(data['socialLinks'] ?? {});
         _gallery = List<String>.from(data['gallery'] ?? []);
         
         List<dynamic> offs = data['officials'] ?? [];
         _officials = offs.map((e) => Map<String, dynamic>.from(e)).toList();
 
-        // Parse Color
         try {
           String hex = _btnColorCtrl.text.replaceAll("#", "");
           if (hex.length == 6) {
@@ -155,7 +153,7 @@ class _WebConfigViewState extends State<WebConfigView> {
             _sectionTitle("Gallery"),
             _buildGalleryGrid(),
 
-            const SizedBox(height: 80), // Space for FAB
+            const SizedBox(height: 80),
           ],
         ),
       ),
@@ -246,7 +244,6 @@ class _WebConfigViewState extends State<WebConfigView> {
               if(nameCtrl.text.isNotEmpty) { 
                 Map<String, dynamic> d = {'name': nameCtrl.text, 'role': roleCtrl.text, 'img': _fixDriveLink(imgCtrl.text)}; 
                 setState(() { 
-                  // FIXED: Removed ! operator
                   if (index == null) {
                     _officials.add(d);
                   } else {
@@ -265,12 +262,17 @@ class _WebConfigViewState extends State<WebConfigView> {
   // --- GALLERY ---
   Widget _buildGalleryGrid() {
     return Card(
-      color: Colors.white, elevation: 0, padding: const EdgeInsets.all(12),
+      color: Colors.white, elevation: 0,
+      // FIX: Removed 'padding' parameter from Card
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade300)),
-      child: Column(children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)), IconButton(icon: const Icon(Icons.add_photo_alternate), onPressed: _addGallery)]),
-        _gallery.isEmpty ? const Text("No images.", style: TextStyle(color: Colors.grey)) : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 1), itemCount: _gallery.length, itemBuilder: (context, index) { return Stack(fit: StackFit.expand, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(_gallery[index], fit: BoxFit.cover, errorBuilder: (c,e,s)=>Container(color: Colors.grey.shade200, child: const Icon(Icons.error)))), Positioned(top: 4, right: 4, child: InkWell(onTap: () => setState(() => _gallery.removeAt(index)), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 12, color: Colors.white))))]); })
-    ]));
+      child: Padding(
+        padding: const EdgeInsets.all(12), // FIX: Added Padding widget here
+        child: Column(children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Gallery", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)), IconButton(icon: const Icon(Icons.add_photo_alternate), onPressed: _addGallery)]),
+          _gallery.isEmpty ? const Text("No images.", style: TextStyle(color: Colors.grey)) : GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 1), itemCount: _gallery.length, itemBuilder: (context, index) { return Stack(fit: StackFit.expand, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(_gallery[index], fit: BoxFit.cover, errorBuilder: (c,e,s)=>Container(color: Colors.grey.shade200, child: const Icon(Icons.error)))), Positioned(top: 4, right: 4, child: InkWell(onTap: () => setState(() => _gallery.removeAt(index)), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 12, color: Colors.white))))]); })
+        ]),
+      )
+    );
   }
 
   void _addGallery() {

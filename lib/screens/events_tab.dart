@@ -1,10 +1,11 @@
 // File: lib/screens/events_tab.dart
-// Version: 5.0 (Final)
-// Description: Added Stage Filter, "All" option for every filter, and kept previous professional layout.
+// Version: 6.0
+// Description: Restored Badges, Category Icons, and Search Optimization.
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../layout/responsive_layout.dart'; // For globalSearchQuery
+import '../layout/responsive_layout.dart'; 
 
 class EventsTab extends StatefulWidget {
   const EventsTab({super.key});
@@ -14,15 +15,19 @@ class EventsTab extends StatefulWidget {
 
 class _EventsTabState extends State<EventsTab> {
   final db = FirebaseFirestore.instance;
+  final List<StreamSubscription> _streams = [];
+  Timer? _debounceTimer;
+  String _currentSearch = "";
 
-  // ഫിൽറ്ററുകൾ (Filters)
+  // Filters
   String? _filterCategory;
-  String? _filterType; // Single/Group
-  String? _filterStage; // On-Stage/Off-Stage
-  String? _filterPart; // Participation
+  String? _filterType;
+  String? _filterStage;
+  String? _filterPart;
   
-  // ഡാറ്റ കാഷെ
+  // Data
   List<DocumentSnapshot> _allEvents = [];
+  List<DocumentSnapshot> _filteredEvents = [];
   List<String> _categories = [];
   bool _isMixedMode = true;
   bool _isLoading = true;
@@ -31,19 +36,36 @@ class _EventsTabState extends State<EventsTab> {
   void initState() {
     super.initState();
     _initData();
+    globalSearchQuery.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    globalSearchQuery.removeListener(_onSearchChanged);
+    _debounceTimer?.cancel();
+    for (var s in _streams) s.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      setState(() {
+        _currentSearch = globalSearchQuery.value.toLowerCase();
+        _applyFilters();
+      });
+    });
   }
 
   void _initData() {
-    // 1. Categories Listener
-    db.collection('settings').doc('general').snapshots().listen((snap) {
+    _streams.add(db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
         });
       }
-    });
+    }));
 
-    // 2. Mode Listener
     db.collection('config').doc('main').get().then((snap) {
       if (snap.exists && mounted) {
         setState(() {
@@ -52,14 +74,32 @@ class _EventsTabState extends State<EventsTab> {
       }
     });
 
-    // 3. Events Listener
-    db.collection('events').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+    _streams.add(db.collection('events').orderBy('createdAt', descending: true).snapshots().listen((snap) {
       if(mounted) {
         setState(() {
           _allEvents = snap.docs;
           _isLoading = false;
         });
+        _applyFilters();
       }
+    }));
+  }
+
+  void _applyFilters() {
+    setState(() {
+      _filteredEvents = _allEvents.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        
+        if (_filterCategory != null && data['category'] != _filterCategory) return false;
+        if (_filterType != null && data['type'] != _filterType) return false;
+        if (_filterStage != null && data['stage'] != _filterStage) return false;
+        if (_filterPart != null && data['participation'] != _filterPart) return false;
+        
+        if (_currentSearch.isNotEmpty) {
+          if (!data['name'].toString().toLowerCase().contains(_currentSearch)) return false;
+        }
+        return true;
+      }).toList();
     });
   }
 
@@ -71,17 +111,12 @@ class _EventsTabState extends State<EventsTab> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // --- FILTERS ---
             _buildAdvancedFilterBar(),
             const SizedBox(height: 12),
-            
-            // --- EVENTS LIST ---
             Expanded(child: _buildEventsList()),
           ],
         ),
       ),
-      
-      // --- ADD BUTTON ---
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEventDialog(),
         backgroundColor: Colors.indigo,
@@ -91,75 +126,32 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // 1. ADVANCED FILTER BAR (With All Options & Stage)
+  // 1. ADVANCED FILTER BAR
   Widget _buildAdvancedFilterBar() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            // Header Row (Reset Button)
             Row(
               children: [
-                const Icon(Icons.filter_list, color: Colors.indigo, size: 20),
-                const SizedBox(width: 8),
-                const Text("Filters:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                const Spacer(),
-                if (_filterCategory != null || _filterType != null || _filterStage != null || _filterPart != null)
-                  InkWell(
-                    onTap: () => setState(() { _filterCategory = null; _filterType = null; _filterStage = null; _filterPart = null; }),
-                    child: const Row(children: [Icon(Icons.clear_all, size: 16, color: Colors.red), Text("Reset All", style: TextStyle(color: Colors.red, fontSize: 11))]),
-                  )
+                Expanded(child: _styledDropdown(value: _filterCategory, hint: "Category", items: ["General", ..._categories], onChanged: (v){ _filterCategory=v; _applyFilters(); })),
+                const SizedBox(width: 10),
+                Expanded(child: _styledDropdown(value: _filterType, hint: "Type", items: ["Single", "Group"], onChanged: (v){ _filterType=v?.toLowerCase(); _applyFilters(); })),
               ],
             ),
             const SizedBox(height: 10),
-            
-            // Filters Row 1
             Row(
               children: [
-                // Category Filter
-                Expanded(child: _styledDropdown(
-                  value: _filterCategory, 
-                  hint: "All Categories", 
-                  items: ["General", ..._categories], 
-                  onChanged: (v)=>setState(()=>_filterCategory=v)
-                )),
-                const SizedBox(width: 8),
-                // Type Filter
-                Expanded(child: _styledDropdown(
-                  value: _filterType, 
-                  hint: "All Types", 
-                  items: ["Single", "Group"], 
-                  onChanged: (v)=>setState(()=>_filterType=v?.toLowerCase())
-                )),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Filters Row 2
-            Row(
-              children: [
-                // Stage Filter (NEW)
-                Expanded(child: _styledDropdown(
-                  value: _filterStage, 
-                  hint: "All Stages", 
-                  items: ["On-Stage", "Off-Stage"], 
-                  onChanged: (v)=>setState(()=>_filterStage=v)
-                )),
-                
-                // Gender Filter (Only Mixed)
-                if(_isMixedMode) ...[
-                  const SizedBox(width: 8),
-                  Expanded(child: _styledDropdown(
-                    value: _filterPart, 
-                    hint: "All Genders", 
-                    items: ["Open", "Boys", "Girls"], 
-                    displayItems: ["Common", "Boys Only", "Girls Only"], 
-                    onChanged: (v)=>setState(()=>_filterPart=v?.toLowerCase())
-                  )),
-                ] else 
-                  const Spacer(), // Empty space if not mixed to keep layout balanced
+                Expanded(child: _styledDropdown(value: _filterStage, hint: "Stage", items: ["On-Stage", "Off-Stage"], onChanged: (v){ _filterStage=v; _applyFilters(); })),
+                const SizedBox(width: 10),
+                if(_isMixedMode)
+                   Expanded(child: _styledDropdown(value: _filterPart, hint: "Gender", items: ["Open", "Boys", "Girls"], displayItems: ["Common", "Boys Only", "Girls Only"], onChanged: (v){ _filterPart=v?.toLowerCase(); _applyFilters(); }))
+                else
+                   const Spacer(),
               ],
             )
           ],
@@ -168,133 +160,81 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // Styled Dropdown with "All" logic
   Widget _styledDropdown({required String? value, required String hint, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
-    bool isSelected = value != null;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: isSelected ? Colors.indigo.shade50 : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: isSelected ? Colors.indigo : Colors.grey.shade300)
+    return DropdownButtonFormField<String>(
+      value: value, hint: Text("All $hint", style: const TextStyle(fontSize: 12)),
+      isExpanded: true,
+      decoration: InputDecoration(
+        isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        filled: true, fillColor: Colors.grey.shade50,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          hint: Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-          isExpanded: true,
-          icon: Icon(Icons.arrow_drop_down, color: isSelected ? Colors.indigo : Colors.grey, size: 20),
-          items: [
-            // "All" Option (Returns null to reset)
-            DropdownMenuItem(value: null, child: Text(hint, style: const TextStyle(fontSize: 12, color: Colors.grey))),
-            
-            // Other Items
-            ...items.asMap().entries.map((entry) {
-              String val = entry.value;
-              String text = (displayItems != null && displayItems.length > entry.key) ? displayItems[entry.key] : val;
-              return DropdownMenuItem(value: val, child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87), overflow: TextOverflow.ellipsis));
-            }),
-          ],
-          onChanged: onChanged,
-        ),
-      ),
+      items: [
+        DropdownMenuItem(value: null, child: Text("All $hint", style: const TextStyle(color: Colors.grey))),
+        ...items.asMap().entries.map((e) => DropdownMenuItem(value: e.value, child: Text((displayItems!=null && displayItems.length>e.key)?displayItems[e.key]:e.value, overflow: TextOverflow.ellipsis)))
+      ],
+      onChanged: onChanged,
     );
   }
 
   // 2. EVENTS LIST
   Widget _buildEventsList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_allEvents.isEmpty) return const Center(child: Text("No events found."));
+    if (_filteredEvents.isEmpty) return const Center(child: Text("No events found."));
 
-    return ValueListenableBuilder<String>(
-      valueListenable: globalSearchQuery,
-      builder: (context, searchQuery, _) {
+    return ListView.builder(
+      itemCount: _filteredEvents.length,
+      padding: const EdgeInsets.only(bottom: 80),
+      itemBuilder: (context, index) {
+        var data = _filteredEvents[index].data() as Map<String, dynamic>;
+        String docId = _filteredEvents[index].id;
         
-        final filteredDocs = _allEvents.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          
-          // Filters Logic
-          if (_filterCategory != null && data['category'] != _filterCategory) return false;
-          if (_filterType != null && data['type'] != _filterType) return false;
-          if (_filterStage != null && data['stage'] != _filterStage) return false; // New Stage Logic
-          if (_filterPart != null && data['participation'] != _filterPart) return false;
-          
-          // Search Logic
-          if (searchQuery.isNotEmpty) {
-            if (!data['name'].toString().toLowerCase().contains(searchQuery)) return false;
-          }
-          return true;
-        }).toList();
+        bool isGroup = data['type'] == 'group';
+        bool onStage = data['stage'] == 'On-Stage';
+        String part = data['participation'] ?? 'open';
+        List pts = data['points'] ?? [0,0,0];
 
-        if (filteredDocs.isEmpty) return const Center(child: Text("No matching events."));
-
-        return ListView.builder(
-          itemCount: filteredDocs.length,
-          itemBuilder: (context, index) {
-            var data = filteredDocs[index].data() as Map<String, dynamic>;
-            String docId = filteredDocs[index].id;
-            return _buildDetailedEventCard(docId, data);
-          },
-        );
-      },
-    );
-  }
-
-  // --- DETAILED EVENT CARD (Same as V4.0) ---
-  Widget _buildDetailedEventCard(String docId, Map<String, dynamic> data) {
-    bool isGroup = data['type'] == 'group';
-    bool onStage = data['stage'] == 'On-Stage';
-    String part = data['participation'] ?? 'open';
-    List pts = data['points'] ?? [0,0,0];
-    Map limits = data['limits'] ?? {};
-
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: Text(data['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87))),
-                const SizedBox(width: 8),
-                InkWell(onTap: () => _openEventDialog(id: docId, data: data), child: const CircleAvatar(backgroundColor: Colors.blue, radius: 14, child: Icon(Icons.edit, size: 16, color: Colors.white))),
-                const SizedBox(width: 8),
-                InkWell(onTap: () => _deleteEvent(docId, data['name']), child: const CircleAvatar(backgroundColor: Colors.red, radius: 14, child: Icon(Icons.delete, size: 16, color: Colors.white))),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: Text(data['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87))),
+                    const SizedBox(width: 8),
+                    InkWell(onTap: () => _openEventDialog(id: docId, data: data), child: const CircleAvatar(backgroundColor: Colors.blue, radius: 14, child: Icon(Icons.edit, size: 16, color: Colors.white))),
+                    const SizedBox(width: 8),
+                    InkWell(onTap: () => _deleteEvent(docId, data['name']), child: const CircleAvatar(backgroundColor: Colors.red, radius: 14, child: Icon(Icons.delete, size: 16, color: Colors.white))),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                    _infoBadge(data['category'], Colors.blueGrey, Icons.category),
+                    _infoBadge(isGroup ? "Group" : "Single", isGroup ? Colors.purple : Colors.blue, isGroup ? Icons.groups : Icons.person),
+                    _infoBadge(onStage ? "On-Stage" : "Off-Stage", Colors.orange.shade800, Icons.mic),
+                    if(_isMixedMode) _infoBadge(part == 'open' ? "Common" : "${part.toUpperCase()} Only", part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal), part == 'girls' ? Icons.female : (part == 'boys' ? Icons.male : Icons.wc)),
+                ]),
+                const Divider(height: 24),
+                Row(children: [
+                  const Icon(Icons.emoji_events, size: 16, color: Colors.amber), 
+                  const SizedBox(width: 6),
+                  Text("1st: ${pts[0]}   2nd: ${pts[1]}   3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+                  const Spacer(),
+                  const Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Text(isGroup ? "Limit: ${data['limits']['maxTeams']} Teams" : "Limit: ${data['limits']['maxParticipants']} Students", style: const TextStyle(fontSize: 12, color: Colors.grey))
+                ])
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-                _infoBadge(data['category'], Colors.blueGrey, Icons.category),
-                _infoBadge(isGroup ? "Group" : "Single", isGroup ? Colors.purple : Colors.blue, isGroup ? Icons.groups : Icons.person),
-                _infoBadge(onStage ? "On-Stage" : "Off-Stage", Colors.orange.shade800, Icons.mic),
-                if(_isMixedMode) _infoBadge(part == 'open' ? "Common" : "${part.toUpperCase()} Only", part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal), part == 'girls' ? Icons.female : (part == 'boys' ? Icons.male : Icons.wc)),
-            ]),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text("POINTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 4),
-                Row(children: [const Icon(Icons.emoji_events, size: 16, color: Colors.amber), const SizedBox(width: 4), Text("1st: ${pts[0]}  2nd: ${pts[1]}  3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold))])
-              ])),
-              Container(height: 30, width: 1, color: Colors.grey.shade300),
-              const SizedBox(width: 16),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text("LIMITS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 4),
-                Row(children: [const Icon(Icons.info_outline, size: 16, color: Colors.blue), const SizedBox(width: 4), Text(isGroup ? "Max ${limits['maxTeams']} Teams" : "Max ${limits['maxParticipants']} Students", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))])
-              ])),
-            ])
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -306,7 +246,7 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // 3. ADD / EDIT DIALOG
+  // 3. DIALOG
   void _openEventDialog({String? id, Map<String, dynamic>? data}) {
     final nameCtrl = TextEditingController(text: data?['name']);
     final p1Ctrl = TextEditingController(text: data != null ? data['points'][0].toString() : '5');
@@ -334,22 +274,22 @@ class _EventsTabState extends State<EventsTab> {
             title: Text(id == null ? "New Event" : "Edit Event"),
             scrollable: true,
             content: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name")), const SizedBox(height: 10),
-                DropdownButtonFormField<String>(value: selCategory, hint: const Text("Category"), items: [const DropdownMenuItem(value: "General", child: Text("General")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setDialogState(() => selCategory = v), decoration: const InputDecoration(labelText: "Category")),
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name", filled: true)), const SizedBox(height: 10),
+                DropdownButtonFormField<String>(value: selCategory, hint: const Text("Category"), items: [const DropdownMenuItem(value: "General", child: Text("General")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setDialogState(() => selCategory = v), decoration: const InputDecoration(labelText: "Category", filled: true)),
                 const SizedBox(height: 10),
                 Row(children: [
-                  Expanded(child: DropdownButtonFormField(value: selType, items: const [DropdownMenuItem(value: "single", child: Text("Single")), DropdownMenuItem(value: "group", child: Text("Group"))], onChanged: onTypeChanged, decoration: const InputDecoration(labelText: "Type"))),
+                  Expanded(child: DropdownButtonFormField(value: selType, items: const [DropdownMenuItem(value: "single", child: Text("Single")), DropdownMenuItem(value: "group", child: Text("Group"))], onChanged: onTypeChanged, decoration: const InputDecoration(labelText: "Type", filled: true))),
                   const SizedBox(width: 10),
-                  Expanded(child: DropdownButtonFormField(value: selStage, items: const [DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")), DropdownMenuItem(value: "On-Stage", child: Text("On-Stage"))], onChanged: (v) => setDialogState(() => selStage = v!), decoration: const InputDecoration(labelText: "Stage"))),
+                  Expanded(child: DropdownButtonFormField(value: selStage, items: const [DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")), DropdownMenuItem(value: "On-Stage", child: Text("On-Stage"))], onChanged: (v) => setDialogState(() => selStage = v!), decoration: const InputDecoration(labelText: "Stage", filled: true))),
                 ]),
-                if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField(value: selPart, items: const [DropdownMenuItem(value: "open", child: Text("Common")), DropdownMenuItem(value: "boys", child: Text("Boys Only")), DropdownMenuItem(value: "girls", child: Text("Girls Only"))], onChanged: (v) => setDialogState(() => selPart = v!), decoration: const InputDecoration(labelText: "Participation"))],
+                if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField(value: selPart, items: const [DropdownMenuItem(value: "open", child: Text("Common")), DropdownMenuItem(value: "boys", child: Text("Boys Only")), DropdownMenuItem(value: "girls", child: Text("Girls Only"))], onChanged: (v) => setDialogState(() => selPart = v!), decoration: const InputDecoration(labelText: "Participation", filled: true))],
                 const SizedBox(height: 10),
                 const Text("Points", style: TextStyle(fontWeight: FontWeight.bold)),
                 Row(children: [Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number))]),
                 const SizedBox(height: 10),
                 const Text("Limits", style: TextStyle(fontWeight: FontWeight.bold)),
-                if (selType == 'single') TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants"))
-                else Row(children: [Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams"))), const SizedBox(width: 10), Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Size/Team")))])
+                if (selType == 'single') TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants", filled: true))
+                else Row(children: [Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams", filled: true))), const SizedBox(width: 10), Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Size/Team", filled: true)))])
             ]),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),

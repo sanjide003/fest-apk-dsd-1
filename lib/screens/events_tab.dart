@@ -1,6 +1,6 @@
 // File: lib/screens/events_tab.dart
-// Version: 6.0
-// Description: Restored Badges, Category Icons, and Search Optimization.
+// Version: 7.0
+// Description: Fixed Dropdown Display Issue, Added Clear Filter, Compact Layout.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -19,9 +19,9 @@ class _EventsTabState extends State<EventsTab> {
   Timer? _debounceTimer;
   String _currentSearch = "";
 
-  // Filters
+  // Filters (Stored in Title Case for Display)
   String? _filterCategory;
-  String? _filterType;
+  String? _filterType; 
   String? _filterStage;
   String? _filterPart;
   
@@ -90,10 +90,16 @@ class _EventsTabState extends State<EventsTab> {
       _filteredEvents = _allEvents.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         
+        // Filter Logic: Convert Display Value (Title Case) to DB Value (lowercase) where needed
         if (_filterCategory != null && data['category'] != _filterCategory) return false;
-        if (_filterType != null && data['type'] != _filterType) return false;
+        
+        // Fix: DB has 'single'/'group', Filter has 'Single'/'Group'
+        if (_filterType != null && data['type'] != _filterType!.toLowerCase()) return false;
+        
         if (_filterStage != null && data['stage'] != _filterStage) return false;
-        if (_filterPart != null && data['participation'] != _filterPart) return false;
+        
+        // Fix: DB has 'open'/'boys'/'girls', Filter has 'Open'/'Boys'/'Girls'
+        if (_filterPart != null && data['participation'] != _filterPart!.toLowerCase()) return false;
         
         if (_currentSearch.isNotEmpty) {
           if (!data['name'].toString().toLowerCase().contains(_currentSearch)) return false;
@@ -103,16 +109,26 @@ class _EventsTabState extends State<EventsTab> {
     });
   }
 
+  void _clearFilters() {
+    setState(() {
+      _filterCategory = null;
+      _filterType = null;
+      _filterStage = null;
+      _filterPart = null;
+      _applyFilters();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12), // Reduced padding
         child: Column(
           children: [
-            _buildAdvancedFilterBar(),
-            const SizedBox(height: 12),
+            _buildCompactFilterBar(),
+            const SizedBox(height: 10),
             Expanded(child: _buildEventsList()),
           ],
         ),
@@ -126,54 +142,83 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  // 1. ADVANCED FILTER BAR
-  Widget _buildAdvancedFilterBar() {
+  // 1. COMPACT FILTER BAR
+  Widget _buildCompactFilterBar() {
+    bool hasFilter = _filterCategory!=null || _filterType!=null || _filterStage!=null || _filterPart!=null;
+
     return Card(
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(child: _styledDropdown(value: _filterCategory, hint: "Category", items: ["General", ..._categories], onChanged: (v){ _filterCategory=v; _applyFilters(); })),
-                const SizedBox(width: 10),
-                Expanded(child: _styledDropdown(value: _filterType, hint: "Type", items: ["Single", "Group"], onChanged: (v){ _filterType=v?.toLowerCase(); _applyFilters(); })),
-              ],
+            // Filter Icon
+            const Icon(Icons.filter_list, size: 20, color: Colors.indigo),
+            const SizedBox(width: 8),
+            
+            // Filters Row
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _compactDropdown(width: 130, value: _filterCategory, hint: "Category", items: ["General", ..._categories], onChanged: (v){ _filterCategory=v; _applyFilters(); }),
+                    const SizedBox(width: 6),
+                    _compactDropdown(width: 100, value: _filterType, hint: "Type", items: ["Single", "Group"], onChanged: (v){ _filterType=v; _applyFilters(); }), // Removed toLowerCase here
+                    const SizedBox(width: 6),
+                    _compactDropdown(width: 110, value: _filterStage, hint: "Stage", items: ["On-Stage", "Off-Stage"], onChanged: (v){ _filterStage=v; _applyFilters(); }),
+                    if(_isMixedMode) ...[
+                      const SizedBox(width: 6),
+                      _compactDropdown(width: 110, value: _filterPart, hint: "Gender", items: ["Open", "Boys", "Girls"], displayItems: ["Common", "Boys Only", "Girls Only"], onChanged: (v){ _filterPart=v; _applyFilters(); }) // Removed toLowerCase here
+                    ]
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: _styledDropdown(value: _filterStage, hint: "Stage", items: ["On-Stage", "Off-Stage"], onChanged: (v){ _filterStage=v; _applyFilters(); })),
-                const SizedBox(width: 10),
-                if(_isMixedMode)
-                   Expanded(child: _styledDropdown(value: _filterPart, hint: "Gender", items: ["Open", "Boys", "Girls"], displayItems: ["Common", "Boys Only", "Girls Only"], onChanged: (v){ _filterPart=v?.toLowerCase(); _applyFilters(); }))
-                else
-                   const Spacer(),
-              ],
-            )
+
+            // Clear Button
+            if(hasFilter)
+              IconButton(
+                onPressed: _clearFilters, 
+                icon: const Icon(Icons.filter_alt_off, color: Colors.red, size: 20),
+                tooltip: "Clear All Filters",
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.only(left: 8),
+              )
           ],
         ),
       ),
     );
   }
 
-  Widget _styledDropdown({required String? value, required String hint, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
-    return DropdownButtonFormField<String>(
-      value: value, hint: Text("All $hint", style: const TextStyle(fontSize: 12)),
-      isExpanded: true,
-      decoration: InputDecoration(
-        isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        filled: true, fillColor: Colors.grey.shade50,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+  Widget _compactDropdown({required double width, required String? value, required String hint, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
+    return SizedBox(
+      width: width,
+      height: 36, // Compact Height
+      child: DropdownButtonFormField<String>(
+        value: value, 
+        hint: Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        isExpanded: true,
+        icon: const Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
+        decoration: InputDecoration(
+          isDense: true, 
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), // Tight padding
+          filled: true, fillColor: Colors.grey.shade50,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: Colors.grey.shade300)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: Colors.grey.shade300)),
+        ),
+        items: [
+          DropdownMenuItem(value: null, child: Text("All", style: TextStyle(color: Colors.grey.shade600, fontSize: 11))),
+          ...items.asMap().entries.map((e) => DropdownMenuItem(
+            value: e.value, 
+            child: Text((displayItems!=null && displayItems.length>e.key)?displayItems[e.key]:e.value, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)
+          ))
+        ],
+        onChanged: onChanged,
       ),
-      items: [
-        DropdownMenuItem(value: null, child: Text("All $hint", style: const TextStyle(color: Colors.grey))),
-        ...items.asMap().entries.map((e) => DropdownMenuItem(value: e.value, child: Text((displayItems!=null && displayItems.length>e.key)?displayItems[e.key]:e.value, overflow: TextOverflow.ellipsis)))
-      ],
-      onChanged: onChanged,
     );
   }
 
@@ -195,40 +240,38 @@ class _EventsTabState extends State<EventsTab> {
         List pts = data['points'] ?? [0,0,0];
 
         return Card(
-          margin: const EdgeInsets.only(bottom: 12),
+          margin: const EdgeInsets.only(bottom: 8), // Reduced margin
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12), // Reduced padding
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: Text(data['name'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87))),
+                    Expanded(child: Text(data['name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87))),
                     const SizedBox(width: 8),
-                    InkWell(onTap: () => _openEventDialog(id: docId, data: data), child: const CircleAvatar(backgroundColor: Colors.blue, radius: 14, child: Icon(Icons.edit, size: 16, color: Colors.white))),
-                    const SizedBox(width: 8),
-                    InkWell(onTap: () => _deleteEvent(docId, data['name']), child: const CircleAvatar(backgroundColor: Colors.red, radius: 14, child: Icon(Icons.delete, size: 16, color: Colors.white))),
+                    InkWell(onTap: () => _openEventDialog(id: docId, data: data), child: const Icon(Icons.edit, size: 18, color: Colors.blue)),
+                    const SizedBox(width: 12),
+                    InkWell(onTap: () => _deleteEvent(docId, data['name']), child: const Icon(Icons.delete, size: 18, color: Colors.red)),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                    _infoBadge(data['category'], Colors.blueGrey, Icons.category),
-                    _infoBadge(isGroup ? "Group" : "Single", isGroup ? Colors.purple : Colors.blue, isGroup ? Icons.groups : Icons.person),
-                    _infoBadge(onStage ? "On-Stage" : "Off-Stage", Colors.orange.shade800, Icons.mic),
-                    if(_isMixedMode) _infoBadge(part == 'open' ? "Common" : "${part.toUpperCase()} Only", part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal), part == 'girls' ? Icons.female : (part == 'boys' ? Icons.male : Icons.wc)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                    _infoBadge(data['category'], Colors.blueGrey),
+                    _infoBadge(isGroup ? "Group" : "Single", isGroup ? Colors.purple : Colors.blue),
+                    _infoBadge(onStage ? "On-Stage" : "Off-Stage", Colors.orange.shade800),
+                    if(_isMixedMode) _infoBadge(part == 'open' ? "Common" : "${part.toUpperCase()} Only", part == 'girls' ? Colors.pink : (part == 'boys' ? Colors.blue.shade800 : Colors.teal)),
                 ]),
-                const Divider(height: 24),
+                const Divider(height: 16),
                 Row(children: [
-                  const Icon(Icons.emoji_events, size: 16, color: Colors.amber), 
-                  const SizedBox(width: 6),
-                  Text("1st: ${pts[0]}   2nd: ${pts[1]}   3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
-                  const Spacer(),
-                  const Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                  const Icon(Icons.emoji_events, size: 14, color: Colors.amber), 
                   const SizedBox(width: 4),
-                  Text(isGroup ? "Limit: ${data['limits']['maxTeams']} Teams" : "Limit: ${data['limits']['maxParticipants']} Students", style: const TextStyle(fontSize: 12, color: Colors.grey))
+                  Text("1st: ${pts[0]}   2nd: ${pts[1]}   3rd: ${pts[2]}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)),
+                  const Spacer(),
+                  Text(isGroup ? "Max: ${data['limits']['maxTeams']} Teams" : "Max: ${data['limits']['maxParticipants']} Studs", style: const TextStyle(fontSize: 11, color: Colors.grey))
                 ])
               ],
             ),
@@ -238,11 +281,11 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  Widget _infoBadge(String text, Color color, IconData icon) {
+  Widget _infoBadge(String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6), border: Border.all(color: color.withOpacity(0.3))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 12, color: color), const SizedBox(width: 4), Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color))]),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: color.withOpacity(0.3))),
+      child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
     );
   }
 
@@ -273,23 +316,26 @@ class _EventsTabState extends State<EventsTab> {
           return AlertDialog(
             title: Text(id == null ? "New Event" : "Edit Event"),
             scrollable: true,
+            contentPadding: const EdgeInsets.all(16),
             content: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name", filled: true)), const SizedBox(height: 10),
-                DropdownButtonFormField<String>(value: selCategory, hint: const Text("Category"), items: [const DropdownMenuItem(value: "General", child: Text("General")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setDialogState(() => selCategory = v), decoration: const InputDecoration(labelText: "Category", filled: true)),
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Event Name", filled: true, isDense: true)), const SizedBox(height: 10),
+                DropdownButtonFormField<String>(value: selCategory, hint: const Text("Category"), items: [const DropdownMenuItem(value: "General", child: Text("General")), ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))], onChanged: (v) => setDialogState(() => selCategory = v), decoration: const InputDecoration(labelText: "Category", filled: true, isDense: true)),
                 const SizedBox(height: 10),
                 Row(children: [
-                  Expanded(child: DropdownButtonFormField(value: selType, items: const [DropdownMenuItem(value: "single", child: Text("Single")), DropdownMenuItem(value: "group", child: Text("Group"))], onChanged: onTypeChanged, decoration: const InputDecoration(labelText: "Type", filled: true))),
+                  Expanded(child: DropdownButtonFormField(value: selType, items: const [DropdownMenuItem(value: "single", child: Text("Single")), DropdownMenuItem(value: "group", child: Text("Group"))], onChanged: onTypeChanged, decoration: const InputDecoration(labelText: "Type", filled: true, isDense: true))),
                   const SizedBox(width: 10),
-                  Expanded(child: DropdownButtonFormField(value: selStage, items: const [DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")), DropdownMenuItem(value: "On-Stage", child: Text("On-Stage"))], onChanged: (v) => setDialogState(() => selStage = v!), decoration: const InputDecoration(labelText: "Stage", filled: true))),
+                  Expanded(child: DropdownButtonFormField(value: selStage, items: const [DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")), DropdownMenuItem(value: "On-Stage", child: Text("On-Stage"))], onChanged: (v) => setDialogState(() => selStage = v!), decoration: const InputDecoration(labelText: "Stage", filled: true, isDense: true))),
                 ]),
-                if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField(value: selPart, items: const [DropdownMenuItem(value: "open", child: Text("Common")), DropdownMenuItem(value: "boys", child: Text("Boys Only")), DropdownMenuItem(value: "girls", child: Text("Girls Only"))], onChanged: (v) => setDialogState(() => selPart = v!), decoration: const InputDecoration(labelText: "Participation", filled: true))],
+                if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField(value: selPart, items: const [DropdownMenuItem(value: "open", child: Text("Common")), DropdownMenuItem(value: "boys", child: Text("Boys Only")), DropdownMenuItem(value: "girls", child: Text("Girls Only"))], onChanged: (v) => setDialogState(() => selPart = v!), decoration: const InputDecoration(labelText: "Participation", filled: true, isDense: true))],
                 const SizedBox(height: 10),
-                const Text("Points", style: TextStyle(fontWeight: FontWeight.bold)),
-                Row(children: [Expanded(child: TextField(controller: p1Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p2Ctrl, keyboardType: TextInputType.number)), const SizedBox(width: 5), Expanded(child: TextField(controller: p3Ctrl, keyboardType: TextInputType.number))]),
+                const Align(alignment: Alignment.centerLeft, child: Text("Points (1st - 2nd - 3rd)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                const SizedBox(height: 4),
+                Row(children: [Expanded(child: _miniInput(p1Ctrl, "1st")), const SizedBox(width: 5), Expanded(child: _miniInput(p2Ctrl, "2nd")), const SizedBox(width: 5), Expanded(child: _miniInput(p3Ctrl, "3rd"))]),
                 const SizedBox(height: 10),
-                const Text("Limits", style: TextStyle(fontWeight: FontWeight.bold)),
-                if (selType == 'single') TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Participants", filled: true))
-                else Row(children: [Expanded(child: TextField(controller: limit1Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Max Teams", filled: true))), const SizedBox(width: 10), Expanded(child: TextField(controller: limit2Ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Size/Team", filled: true)))])
+                const Align(alignment: Alignment.centerLeft, child: Text("Limits", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                const SizedBox(height: 4),
+                if (selType == 'single') _miniInput(limit1Ctrl, "Max Participants")
+                else Row(children: [Expanded(child: _miniInput(limit1Ctrl, "Max Teams")), const SizedBox(width: 10), Expanded(child: _miniInput(limit2Ctrl, "Size/Team"))])
             ]),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
@@ -304,6 +350,10 @@ class _EventsTabState extends State<EventsTab> {
         }
       ),
     );
+  }
+
+  Widget _miniInput(TextEditingController c, String hint) {
+    return TextField(controller: c, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: hint, filled: true, isDense: true, contentPadding: const EdgeInsets.all(10), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))));
   }
 
   Future<void> _deleteEvent(String id, String name) async {

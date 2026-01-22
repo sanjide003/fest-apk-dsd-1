@@ -1,6 +1,6 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 11.0
-// Description: Global Search enabled for Registrations Tab.
+// Version: 12.0
+// Description: Original Design Restored. Added Search support for Registrations Tab (Index 3).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -13,7 +13,7 @@ import '../screens/dashboard_tab.dart';
 import '../screens/publish_tab.dart';
 import '../screens/registrations_tab.dart';
 
-// Global ValueNotifier for Search (Used by Students, Events, Registrations)
+// Global ValueNotifier for Search
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
 class ResponsiveMainLayout extends StatefulWidget {
@@ -70,7 +70,6 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
       _idx = index;
       _isMenuOpen = false;
       _menuAnimCtrl.reverse();
-      // Tab മാറുമ്പോൾ സെർച്ച് ക്ലോസ് ചെയ്യുന്നു
       if (_isSearchExpanded) _closeSearch();
     });
   }
@@ -151,8 +150,8 @@ class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with Ticker
   }
 
   Widget _buildFloatingHeader(bool isWeb) {
-    // 1=Students, 2=Events, 3=Registrations
-    bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 3); 
+    // UPDATED: Added index 3 (Registrations) to allow search
+    bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 3 || _idx == 4); 
 
     return Container(
       height: 60,

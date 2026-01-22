@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 9.0
-// Description: Fixed Search Logic (Initial State, Team/Student Search Support), Search in Details Popup.
+// Version: 10.0
+// Description: Added Search Bar in Header, Redesigned Event Cards with detailed Team Status (Participated/Not Participated).
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -21,6 +21,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   String _filterStage = "All";
   String _filterType = "All"; 
   String _currentSearch = "";
+  final TextEditingController _searchCtrl = TextEditingController();
 
   // Data
   List<DocumentSnapshot> _allEvents = [];
@@ -35,17 +36,14 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   @override
   void initState() {
     super.initState();
-    // 1. Initialize search with current value
-    _currentSearch = globalSearchQuery.value.toLowerCase();
-    
     _initData();
-    // 2. Listen to global search changes
-    globalSearchQuery.addListener(_onSearchChanged);
+    // Sync with global search if needed, but we added a local one too
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    globalSearchQuery.removeListener(_onSearchChanged);
+    _searchCtrl.dispose();
     _debounceTimer?.cancel();
     super.dispose();
   }
@@ -55,7 +53,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       if(mounted) {
         setState(() {
-          _currentSearch = globalSearchQuery.value.toLowerCase();
+          _currentSearch = _searchCtrl.text.toLowerCase();
           _applyFilters();
         });
       }
@@ -90,7 +88,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
         setState(() {
           _registrations = snap.docs;
           _isLoading = false;
-          _applyFilters(); // Re-apply filters when regs change (for team search)
+          _applyFilters();
         });
       }
     });
@@ -107,7 +105,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
           bool nameMatch = data['name'].toString().toLowerCase().contains(_currentSearch);
           bool contentMatch = false;
 
-          // If event name doesn't match, check if any registered team/student matches
           if (!nameMatch) {
              var eventRegs = _registrations.where((r) => r['eventId'] == eid);
              for (var r in eventRegs) {
@@ -124,13 +121,9 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
           if (!nameMatch && !contentMatch) return false;
         }
 
-        // 2. Category Filter
         if (_filterCategory != "All" && data['category'] != _filterCategory) return false;
-        
-        // 3. Stage Filter
         if (_filterStage != "All" && data['stage'] != _filterStage) return false;
 
-        // 4. Type Filter
         String type = (data['type'] ?? '').toString().toLowerCase();
         if (_filterType != "All" && type != _filterType.toLowerCase()) return false;
 
@@ -144,7 +137,8 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       _filterCategory = "All";
       _filterStage = "All";
       _filterType = "All";
-      // Note: We don't clear global search text here as it's controlled outside
+      _searchCtrl.clear();
+      _currentSearch = "";
       _applyFilters();
     });
   }
@@ -172,45 +166,63 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  // ==================== 1. FILTER HEADER ====================
+  // ==================== 1. FILTER HEADER (With Search) ====================
 
   Widget _buildFilterHeader() {
-    bool hasFilter = _filterCategory!="All" || _filterStage!="All" || _filterType!="All";
+    bool hasFilter = _filterCategory!="All" || _filterStage!="All" || _filterType!="All" || _currentSearch.isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade300),
       ),
-      child: Row(
+      child: Column(
         children: [
-          const Icon(Icons.filter_list_rounded, color: Colors.indigo, size: 24),
-          const SizedBox(width: 12),
-          // Expanded Scrollable Row
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _filterDropdown(label: "Category", value: _filterCategory, items: ["All", ..._categories], onChanged: (v) { _filterCategory = v!; _applyFilters(); }),
-                  const SizedBox(width: 8),
-                  _filterDropdown(label: "Type", value: _filterType, items: ["All", "Single", "Group"], onChanged: (v) { _filterType = v!; _applyFilters(); }),
-                  const SizedBox(width: 8),
-                  _filterDropdown(label: "Stage", value: _filterStage, items: ["All", "On-Stage", "Off-Stage"], onChanged: (v) { _filterStage = v!; _applyFilters(); }),
-                ],
-              ),
+          // Search Bar
+          TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: "Search Event, Team or Student...",
+              prefixIcon: const Icon(Icons.search, color: Colors.indigo),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+              filled: true, fillColor: Colors.grey.shade50,
+              isDense: true,
             ),
           ),
+          const SizedBox(height: 12),
           
-          if (hasFilter)
-            IconButton(
-              onPressed: _clearFilters,
-              icon: const Icon(Icons.highlight_off, color: Colors.red),
-              tooltip: "Clear Filters",
-            )
+          // Dropdowns Row
+          Row(
+            children: [
+              const Icon(Icons.filter_list_rounded, color: Colors.grey, size: 24),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _filterDropdown(label: "Category", value: _filterCategory, items: ["All", ..._categories], onChanged: (v) { _filterCategory = v!; _applyFilters(); }),
+                      const SizedBox(width: 8),
+                      _filterDropdown(label: "Type", value: _filterType, items: ["All", "Single", "Group"], onChanged: (v) { _filterType = v!; _applyFilters(); }),
+                      const SizedBox(width: 8),
+                      _filterDropdown(label: "Stage", value: _filterStage, items: ["All", "On-Stage", "Off-Stage"], onChanged: (v) { _filterStage = v!; _applyFilters(); }),
+                    ],
+                  ),
+                ),
+              ),
+              if (hasFilter)
+                IconButton(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.highlight_off, color: Colors.red),
+                  tooltip: "Clear Filters",
+                )
+            ],
+          ),
         ],
       ),
     );
@@ -219,23 +231,21 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   Widget _filterDropdown({required String label, required String value, required List<String> items, required Function(String?) onChanged}) {
     return SizedBox(
       width: 130, 
-      height: 45, 
+      height: 40, 
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+          labelStyle: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-          floatingLabelBehavior: FloatingLabelBehavior.always, 
           filled: true, fillColor: Colors.white,
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: items.contains(value) ? value : "All",
             isDense: true, isExpanded: true,
-            icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
-            style: const TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w500),
+            icon: const Icon(Icons.arrow_drop_down, color: Colors.grey, size: 18),
+            style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500),
             items: items.map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis))).toList(),
             onChanged: onChanged,
           ),
@@ -253,10 +263,9 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Mobile: 2 Cols, Desktop: 4 Cols
           int cols = constraints.maxWidth > 800 ? 4 : 2; 
-          // Ratio adjustment for content
-          double ratio = constraints.maxWidth > 800 ? 0.8 : 0.55; 
+          // Aspect ratio set to auto-fit content height roughly
+          double ratio = constraints.maxWidth > 800 ? 0.6 : 0.55; 
 
           return GridView.builder(
             shrinkWrap: true,
@@ -269,7 +278,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
             ),
             itemCount: _filteredEvents.length,
             itemBuilder: (context, index) {
-              return _buildEventCard(_filteredEvents[index]);
+              return _buildDetailedEventCard(_filteredEvents[index]);
             },
           );
         }
@@ -277,14 +286,14 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  Widget _buildEventCard(DocumentSnapshot doc) {
+  Widget _buildDetailedEventCard(DocumentSnapshot doc) {
     var data = doc.data() as Map<String, dynamic>;
     String eid = doc.id;
     bool isGroup = data['type'] == 'group';
     
     var eventRegs = _registrations.where((r) => r['eventId'] == eid).toList();
-    int totalRegs = eventRegs.length;
     
+    // Limits
     int limit = isGroup 
         ? (data['limits']?['maxTeams'] ?? 0)
         : (data['limits']?['maxParticipants'] ?? 0);
@@ -292,73 +301,91 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade300),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 4, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _showEventDetailsDialog(doc), // Pop-up on click
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _showEventDetailsDialog(doc),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. HEADER
+                // 1. TOP ROW: Name & Limit
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Text(data['name'], maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, height: 1.1)),
+                      child: Text(
+                        data['name'], 
+                        maxLines: 2, 
+                        overflow: TextOverflow.ellipsis, 
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, height: 1.1)
+                      ),
                     ),
+                    const SizedBox(width: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFEEF0FF), borderRadius: BorderRadius.circular(8)),
-                      child: Text("$totalRegs", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF3B4DB7), fontSize: 12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.grey.shade300)
+                      ),
+                      child: Text("Limit: $limit", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
                     )
                   ],
                 ),
                 const SizedBox(height: 8),
 
-                // 2. BADGES
+                // 2. MIDDLE ROW: Badges
                 Wrap(
                   spacing: 4, runSpacing: 4,
                   children: [
-                    _htmlTag(data['category'], Colors.blue.shade50, Colors.blue.shade700),
-                    _htmlTag(isGroup ? "Group" : "Single", Colors.purple.shade50, Colors.purple.shade700),
+                    _miniBadge(data['category'], Colors.blue.shade50, Colors.blue.shade700),
+                    _miniBadge(isGroup ? "Group" : "Single", Colors.purple.shade50, Colors.purple.shade700),
+                    _miniBadge(data['stage'] ?? 'Off-Stage', Colors.orange.shade50, Colors.orange.shade800),
+                    if((data['participation'] ?? 'open') != 'open')
+                       _miniBadge(data['participation'].toString().toUpperCase(), Colors.pink.shade50, Colors.pink.shade700),
                   ],
                 ),
                 
                 const Divider(height: 16),
 
-                // 3. TEAM STATUS (Explicit)
+                // 3. BOTTOM ROW: Team Breakdown
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: _teams.map((team) {
                         int count = eventRegs.where((r) => r['teamId'] == team).length;
                         Color tc = _getTeamColor(team);
                         bool participated = count > 0;
                         
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
+                          padding: const EdgeInsets.only(bottom: 6),
                           child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(participated ? Icons.check_circle : Icons.circle_outlined, size: 10, color: participated ? tc : Colors.grey.shade400),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  team, 
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: participated ? Colors.black87 : Colors.grey)
-                                ),
+                              // Team Name with Color Dot
+                              Row(
+                                children: [
+                                  Icon(Icons.circle, size: 8, color: tc),
+                                  const SizedBox(width: 6),
+                                  Text(team, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                ],
                               ),
-                              Text(
-                                participated ? "$count Entries" : "Not Participated",
-                                style: TextStyle(fontSize: 10, color: participated ? tc : Colors.grey, fontWeight: participated ? FontWeight.bold : FontWeight.normal)
-                              )
+                              // Status
+                              participated 
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(color: tc.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                                    child: Text("$count Entries", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: tc))
+                                  )
+                                : const Text("പങ്കെടുത്തിട്ടില്ല", style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.w500)),
                             ],
                           ),
                         );
@@ -366,10 +393,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 6),
-                // 4. LIMIT
-                Text("Limit: $limit ${isGroup ? 'Teams' : 'Entries'}", style: const TextStyle(fontSize: 10, color: Colors.grey))
               ],
             ),
           ),
@@ -378,11 +401,11 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  Widget _htmlTag(String text, Color bg, Color fg) {
+  Widget _miniBadge(String text, Color bg, Color fg) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: fg)),
+      child: Text(text, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: fg)),
     );
   }
 
@@ -396,15 +419,11 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     showDialog(
       context: context,
       builder: (context) {
-        // Use StatefulBuilder to allow local UI updates (if we added local search/filtering inside dialog)
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            // Filter registrations for this event AND current search query
             var eventRegs = _registrations.where((r) {
               var rData = r.data() as Map<String, dynamic>;
               if (r['eventId'] != eid) return false;
-              
-              // Apply search filter inside dialog too
               if (_currentSearch.isNotEmpty) {
                 String t = (rData['teamId'] ?? '').toString().toLowerCase();
                 String s = (rData['studentName'] ?? '').toString().toLowerCase();
@@ -455,7 +474,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                               trailing: IconButton(
                                 icon: const Icon(Icons.block, size: 18, color: Colors.red),
                                 onPressed: () {
-                                  Navigator.pop(context); // Close dialog
+                                  Navigator.pop(context); 
                                   _confirmReject(regId, rData['teamId'], eData['name'], isGroup);
                                 },
                                 tooltip: "Reject",
@@ -479,7 +498,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
 
   Future<void> _confirmReject(String docId, String? teamId, String eventName, bool isGroup) async {
     final reasonCtrl = TextEditingController();
-    
     String title = isGroup ? "Reject Team?" : "Reject Student?";
     String warning = isGroup ? "Remove team '$teamId' from '$eventName'?" : "Remove student from '$eventName'?";
 

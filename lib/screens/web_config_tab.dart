@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 5.0
-// Description: Fixed 'padding' parameter error in Card and Null Safety Warning.
+// Version: 6.0
+// Description: Social Media Section revamped. Shows Icons only for supported platforms. Names shown only if link exists. Edit/Delete via popup.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -23,9 +23,19 @@ class _WebConfigViewState extends State<WebConfigView> {
 
   final _aboutSubCtrl = TextEditingController();
   final _aboutTextCtrl = TextEditingController();
-  final _socialLinkCtrl = TextEditingController();
 
+  // Social Media Data
   Map<String, String> _socialLinks = {}; 
+  
+  // Supported Platforms Configuration
+  final Map<String, Map<String, dynamic>> _socialMeta = {
+    'wa': {'name': 'WhatsApp', 'icon': Icons.message, 'color': Colors.green, 'hint': 'https://wa.me/919876543210'},
+    'ig': {'name': 'Instagram', 'icon': Icons.camera_alt, 'color': Colors.pink, 'hint': 'https://instagram.com/username'},
+    'yt': {'name': 'YouTube', 'icon': Icons.play_circle_fill, 'color': Colors.red, 'hint': 'https://youtube.com/@channel'},
+    'fb': {'name': 'Facebook', 'icon': Icons.facebook, 'color': Colors.blue.shade900, 'hint': 'https://facebook.com/page'},
+    'tg': {'name': 'Telegram', 'icon': Icons.send, 'color': Colors.blue, 'hint': 'https://t.me/username'},
+  };
+
   List<Map<String, dynamic>> _officials = [];
   List<String> _gallery = [];
 
@@ -154,39 +164,124 @@ class _WebConfigViewState extends State<WebConfigView> {
     ])));
   }
 
+  // --- NEW SOCIAL MEDIA SECTION ---
   Widget _buildSmartSocialSection() {
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text("Social Media Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-        const SizedBox(height: 10),
-        Row(children: [Expanded(child: TextField(controller: _socialLinkCtrl, decoration: const InputDecoration(labelText: "Paste Profile Link Here", hintText: "WhatsApp, YouTube, Insta etc.", prefixIcon: Icon(Icons.link), isDense: true))), const SizedBox(width: 8), IconButton.filled(onPressed: _addSmartLink, icon: const Icon(Icons.add), tooltip: "Add Link")]),
-        const SizedBox(height: 15),
-        if (_socialLinks.isEmpty) const Padding(padding: EdgeInsets.all(8.0), child: Text("No links added.", style: TextStyle(color: Colors.grey)))
-        else Wrap(spacing: 8, runSpacing: 8, children: _socialLinks.entries.map((e) => Chip(avatar: Icon(_getSocialIcon(e.key), size: 16, color: Colors.white), label: Text(_getSocialName(e.key)), backgroundColor: _getSocialColor(e.key), labelStyle: const TextStyle(color: Colors.white), deleteIcon: const Icon(Icons.close, size: 16, color: Colors.white), onDeleted: () => setState(() => _socialLinks.remove(e.key)))).toList())
-    ])));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16), 
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, 
+          children: [
+            const Text("Social Media Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+            const SizedBox(height: 4),
+            const Text("Tap configured icons to edit. Tap grey icons to add.", style: TextStyle(fontSize: 11, color: Colors.grey)),
+            const SizedBox(height: 16),
+            
+            // 1. ACTIVE LINKS (Icon + Name)
+            if (_socialLinks.isNotEmpty)
+              Wrap(
+                spacing: 12, runSpacing: 12,
+                children: _socialLinks.keys.map((key) {
+                  if (!_socialMeta.containsKey(key)) return const SizedBox();
+                  var meta = _socialMeta[key]!;
+                  return InkWell(
+                    onTap: () => _openSocialDialog(key),
+                    borderRadius: BorderRadius.circular(50),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(6, 6, 16, 6),
+                      decoration: BoxDecoration(
+                        color: (meta['color'] as Color).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(50),
+                        border: Border.all(color: (meta['color'] as Color).withOpacity(0.3))
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundColor: meta['color'],
+                            child: Icon(meta['icon'], size: 16, color: Colors.white),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(meta['name'], style: TextStyle(fontWeight: FontWeight.bold, color: meta['color'], fontSize: 13)),
+                          const SizedBox(width: 4),
+                          Icon(Icons.edit, size: 12, color: meta['color'])
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+
+            if (_socialLinks.isNotEmpty) const Divider(height: 30),
+
+            // 2. INACTIVE LINKS (Icons Only)
+            const Text("Available Platforms:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 8),
+            Row(
+              children: _socialMeta.keys.where((k) => !_socialLinks.containsKey(k)).map((key) {
+                var meta = _socialMeta[key]!;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: IconButton.filled(
+                    onPressed: () => _openSocialDialog(key),
+                    style: IconButton.styleFrom(backgroundColor: Colors.grey.shade100),
+                    icon: Icon(meta['icon'], color: Colors.grey),
+                    tooltip: "Add ${meta['name']}",
+                  ),
+                );
+              }).toList(),
+            ),
+          ]
+        )
+      )
+    );
   }
 
-  void _addSmartLink() {
-    String url = _socialLinkCtrl.text.trim();
-    if (url.isEmpty) return;
-    String platform = 'web';
-    if (url.contains('whatsapp') || url.contains('wa.me')) platform = 'wa';
-    else if (url.contains('instagram')) platform = 'ig';
-    else if (url.contains('youtube') || url.contains('youtu.be')) platform = 'yt';
-    else if (url.contains('facebook') || url.contains('fb.com')) platform = 'fb';
-    else if (url.contains('telegram') || url.contains('t.me')) platform = 'tg';
-    setState(() => _socialLinks[platform] = url);
-    _socialLinkCtrl.clear();
-  }
-
-  IconData _getSocialIcon(String key) {
-    switch(key) { case 'wa': return Icons.chat; case 'ig': return Icons.camera_alt; case 'yt': return Icons.play_circle_fill; case 'fb': return Icons.facebook; case 'tg': return Icons.send; default: return Icons.public; }
-  }
-  Color _getSocialColor(String key) {
-    switch(key) { case 'wa': return Colors.green; case 'ig': return Colors.pink; case 'yt': return Colors.red; case 'fb': return Colors.blue.shade800; case 'tg': return Colors.blue; default: return Colors.grey; }
-  }
-  String _getSocialName(String key) {
-    const names = {'wa': 'WhatsApp', 'ig': 'Instagram', 'yt': 'YouTube', 'fb': 'Facebook', 'tg': 'Telegram', 'web': 'Website'};
-    return names[key] ?? 'Link';
+  void _openSocialDialog(String key) {
+    var meta = _socialMeta[key]!;
+    final linkCtrl = TextEditingController(text: _socialLinks[key] ?? '');
+    
+    showDialog(context: context, builder: (c) => AlertDialog(
+      title: Row(children: [
+        Icon(meta['icon'], color: meta['color']), 
+        const SizedBox(width: 10), 
+        Text(meta['name'])
+      ]),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: linkCtrl,
+            decoration: InputDecoration(
+              labelText: "${meta['name']} URL",
+              hintText: meta['hint'],
+              border: const OutlineInputBorder()
+            ),
+          )
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c), child: const Text("Cancel")),
+        if (_socialLinks.containsKey(key))
+          TextButton(
+            onPressed: () {
+              setState(() => _socialLinks.remove(key));
+              Navigator.pop(c);
+            }, 
+            child: const Text("Remove", style: TextStyle(color: Colors.red))
+          ),
+        ElevatedButton(
+          onPressed: () {
+            if (linkCtrl.text.isNotEmpty) {
+              setState(() => _socialLinks[key] = linkCtrl.text.trim());
+            }
+            Navigator.pop(c);
+          }, 
+          child: const Text("Save")
+        )
+      ],
+    ));
   }
 
   Widget _buildOfficialsSection() {
@@ -224,7 +319,7 @@ class _WebConfigViewState extends State<WebConfigView> {
                     if (index == null) {
                       _officials.add(d);
                     } else {
-                      _officials[index] = d; // Safe assignment without ! operator
+                      _officials[index] = d; 
                     }
                   });
                   Navigator.pop(c);

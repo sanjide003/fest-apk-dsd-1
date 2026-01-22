@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 8.0
-// Description: Fixed Syntax Errors (Mismatched parentheses/brackets) for Production Build.
+// Version: 9.0
+// Description: Fixed Search Logic (Initial State, Team/Student Search Support), Search in Details Popup.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -35,8 +35,11 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   @override
   void initState() {
     super.initState();
+    // 1. Initialize search with current value
+    _currentSearch = globalSearchQuery.value.toLowerCase();
+    
     _initData();
-    // Listen to global search
+    // 2. Listen to global search changes
     globalSearchQuery.addListener(_onSearchChanged);
   }
 
@@ -49,7 +52,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
 
   void _onSearchChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       if(mounted) {
         setState(() {
           _currentSearch = globalSearchQuery.value.toLowerCase();
@@ -87,6 +90,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
         setState(() {
           _registrations = snap.docs;
           _isLoading = false;
+          _applyFilters(); // Re-apply filters when regs change (for team search)
         });
       }
     });
@@ -96,19 +100,37 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     setState(() {
       _filteredEvents = _allEvents.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
+        String eid = doc.id;
         
-        // Text Search
+        // 1. Text Search (Name, Team, or Student)
         if (_currentSearch.isNotEmpty) {
-          if (!data['name'].toString().toLowerCase().contains(_currentSearch)) return false;
+          bool nameMatch = data['name'].toString().toLowerCase().contains(_currentSearch);
+          bool contentMatch = false;
+
+          // If event name doesn't match, check if any registered team/student matches
+          if (!nameMatch) {
+             var eventRegs = _registrations.where((r) => r['eventId'] == eid);
+             for (var r in eventRegs) {
+               var rData = r.data() as Map<String, dynamic>;
+               String tId = (rData['teamId'] ?? '').toString().toLowerCase();
+               String sName = (rData['studentName'] ?? '').toString().toLowerCase();
+               if (tId.contains(_currentSearch) || sName.contains(_currentSearch)) {
+                 contentMatch = true;
+                 break;
+               }
+             }
+          }
+          
+          if (!nameMatch && !contentMatch) return false;
         }
 
-        // Category Filter
+        // 2. Category Filter
         if (_filterCategory != "All" && data['category'] != _filterCategory) return false;
         
-        // Stage Filter
+        // 3. Stage Filter
         if (_filterStage != "All" && data['stage'] != _filterStage) return false;
 
-        // Type Filter
+        // 4. Type Filter
         String type = (data['type'] ?? '').toString().toLowerCase();
         if (_filterType != "All" && type != _filterType.toLowerCase()) return false;
 
@@ -122,7 +144,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       _filterCategory = "All";
       _filterStage = "All";
       _filterType = "All";
-      _currentSearch = "";
+      // Note: We don't clear global search text here as it's controlled outside
       _applyFilters();
     });
   }
@@ -369,64 +391,87 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   void _showEventDetailsDialog(DocumentSnapshot eventDoc) {
     var eData = eventDoc.data() as Map<String, dynamic>;
     String eid = eventDoc.id;
-    var eventRegs = _registrations.where((r) => r['eventId'] == eid).toList();
     bool isGroup = eData['type'] == 'group';
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(eData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text("${eventRegs.length} Total Registrations", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: eventRegs.isEmpty
-              ? const Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.inbox, size: 40, color: Colors.grey), Text("No registrations yet")])
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: eventRegs.length,
-                  itemBuilder: (context, index) {
-                    var r = eventRegs[index];
-                    var rData = r.data() as Map<String, dynamic>;
-                    String regId = r.id;
-                    String team = rData['teamId'] ?? 'Unknown';
-                    Color tc = _getTeamColor(team);
+      builder: (context) {
+        // Use StatefulBuilder to allow local UI updates (if we added local search/filtering inside dialog)
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            // Filter registrations for this event AND current search query
+            var eventRegs = _registrations.where((r) {
+              var rData = r.data() as Map<String, dynamic>;
+              if (r['eventId'] != eid) return false;
+              
+              // Apply search filter inside dialog too
+              if (_currentSearch.isNotEmpty) {
+                String t = (rData['teamId'] ?? '').toString().toLowerCase();
+                String s = (rData['studentName'] ?? '').toString().toLowerCase();
+                String c = (rData['chestNo'] ?? '').toString().toLowerCase();
+                if (!t.contains(_currentSearch) && !s.contains(_currentSearch) && !c.contains(_currentSearch)) {
+                  return false;
+                }
+              }
+              return true;
+            }).toList();
 
-                    return Card(
-                      elevation: 0,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
-                      child: ListTile(
-                        dense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                        leading: CircleAvatar(
-                          backgroundColor: tc.withOpacity(0.1),
-                          radius: 14,
-                          child: Text("${index + 1}", style: TextStyle(color: tc, fontWeight: FontWeight.bold, fontSize: 12)),
-                        ),
-                        title: Text(isGroup ? team : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        subtitle: Text(isGroup ? "Team Event" : "Chest: ${rData['chestNo']} • $team", style: const TextStyle(fontSize: 11)),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.block, size: 18, color: Colors.red),
-                          onPressed: () {
-                            Navigator.pop(context); // Close dialog
-                            _confirmReject(regId, rData['teamId'], eData['name'], isGroup);
-                          },
-                          tooltip: "Reject",
-                        ),
+            return AlertDialog(
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(eData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text("${eventRegs.length} Matches Found", style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: eventRegs.isEmpty
+                    ? const Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.inbox, size: 40, color: Colors.grey), Text("No matching registrations")])
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: eventRegs.length,
+                        itemBuilder: (context, index) {
+                          var r = eventRegs[index];
+                          var rData = r.data() as Map<String, dynamic>;
+                          String regId = r.id;
+                          String team = rData['teamId'] ?? 'Unknown';
+                          Color tc = _getTeamColor(team);
+
+                          return Card(
+                            elevation: 0,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                              leading: CircleAvatar(
+                                backgroundColor: tc.withOpacity(0.1),
+                                radius: 14,
+                                child: Text("${index + 1}", style: TextStyle(color: tc, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                              title: Text(isGroup ? team : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              subtitle: Text(isGroup ? "Team Event" : "Chest: ${rData['chestNo']} • $team", style: const TextStyle(fontSize: 11)),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.block, size: 18, color: Colors.red),
+                                onPressed: () {
+                                  Navigator.pop(context); // Close dialog
+                                  _confirmReject(regId, rData['teamId'], eData['name'], isGroup);
+                                },
+                                tooltip: "Reject",
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close"))
-        ],
-      ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close"))
+              ],
+            );
+          }
+        );
+      },
     );
   }
 

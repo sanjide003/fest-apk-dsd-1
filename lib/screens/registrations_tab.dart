@@ -1,7 +1,8 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 1.0
-// Description: ഇവന്റ് രജിസ്ട്രേഷൻ മാനേജ്മെന്റ്. ടീമുകളെ നിരീക്ഷിക്കാനും, എൻട്രികൾ ക്യാൻസൽ ചെയ്യാനും, നോട്ടിഫിക്കേഷൻ അയക്കാനും സാധിക്കുന്നു.
+// Version: 2.0
+// Description: Event Cards Grid View, Click to Manage Registrations, Reject/Delete functionality.
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -14,16 +15,15 @@ class RegistrationsTab extends StatefulWidget {
 class _RegistrationsTabState extends State<RegistrationsTab> {
   final db = FirebaseFirestore.instance;
 
-  // Filters
-  String? _selectedCategory;
-  String _selectedStage = "All"; // All, On-Stage, Off-Stage
-  String? _selectedEventId;
-  String? _selectedEventName; // For notification
+  // State Management
+  String? _selectedEventId; // If null, show Grid. If set, show Details.
+  DocumentSnapshot? _selectedEventDoc;
 
   // Data
-  List<String> _categories = [];
-  List<String> _teams = [];
   List<DocumentSnapshot> _events = [];
+  List<DocumentSnapshot> _registrations = [];
+  List<String> _categories = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -32,262 +32,254 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   }
 
   void _initData() {
-    // Load Settings (Cats & Teams)
+    // 1. Load Categories
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
-          _teams = List<String>.from(snap.data()?['teams'] ?? []);
         });
       }
     });
 
-    // Load Events
-    db.collection('events').snapshots().listen((snap) {
-      if (mounted) {
-        setState(() => _events = snap.docs);
+    // 2. Load Events
+    db.collection('events').orderBy('name').snapshots().listen((snap) {
+      if(mounted) setState(() => _events = snap.docs);
+    });
+
+    // 3. Load All Registrations (To show counts on cards)
+    db.collection('registrations').snapshots().listen((snap) {
+      if(mounted) {
+        setState(() {
+          _registrations = snap.docs;
+          _isLoading = false;
+        });
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    // Logic: Show Grid if no event selected, else show Details
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: Column(
+      body: _selectedEventId == null 
+          ? _buildEventGrid() 
+          : _buildDetailView(),
+    );
+  }
+
+  // ==================== 1. EVENT GRID VIEW ====================
+
+  Widget _buildEventGrid() {
+    if (_events.isEmpty) return const Center(child: Text("No events found."));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. FILTERS HEADER
-          _buildFilterSection(),
-          
-          // 2. MAIN CONTENT
-          Expanded(
-            child: _selectedEventId == null
-                ? _buildEmptyState()
-                : _buildTeamGrid(),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 12),
+            child: Text("All Events", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo)),
+          ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              int cols = constraints.maxWidth > 800 ? 4 : 2; // Responsive Grid
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.4,
+                ),
+                itemCount: _events.length,
+                itemBuilder: (context, index) {
+                  return _buildEventCard(_events[index]);
+                },
+              );
+            }
           ),
         ],
       ),
     );
   }
 
-  // --- 1. FILTER SECTION ---
-  Widget _buildFilterSection() {
-    // Filter Events based on Category & Stage
-    List<DocumentSnapshot> filteredEvents = _events.where((e) {
-      var data = e.data() as Map<String, dynamic>;
-      bool catMatch = _selectedCategory == null || data['category'] == _selectedCategory;
-      bool stageMatch = _selectedStage == "All" || 
-                        (_selectedStage == "On-Stage" && data['stage'] == "On-Stage") ||
-                        (_selectedStage == "Off-Stage" && data['stage'] != "On-Stage");
-      return catMatch && stageMatch;
-    }).toList();
+  Widget _buildEventCard(DocumentSnapshot doc) {
+    var data = doc.data() as Map<String, dynamic>;
+    String eid = doc.id;
+    
+    // Calculate Registration Count
+    int count = _registrations.where((r) => r['eventId'] == eid).length;
+    // For group events, this counts teams. For single, students.
+    
+    bool isGroup = data['type'] == 'group';
+    Color catColor = Colors.blueAccent; 
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))]
-      ),
-      child: Column(
-        children: [
-          Row(
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedEventId = eid;
+            _selectedEventDoc = doc;
+          });
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Category Filter
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _selectedCategory,
-                  decoration: const InputDecoration(labelText: "Category", isDense: true, border: OutlineInputBorder()),
-                  items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (v) => setState(() { _selectedCategory = v; _selectedEventId = null; }),
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                        child: Text(data['category'], style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                      ),
+                      Icon(isGroup ? Icons.groups : Icons.person, size: 16, color: Colors.grey.shade400)
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    data['name'], 
+                    maxLines: 2, 
+                    overflow: TextOverflow.ellipsis, 
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              // Stage Filter
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _selectedStage,
-                  decoration: const InputDecoration(labelText: "Stage", isDense: true, border: OutlineInputBorder()),
-                  items: const ["All", "On-Stage", "Off-Stage"].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                  onChanged: (v) => setState(() { _selectedStage = v!; _selectedEventId = null; }),
-                ),
-              ),
+              
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                   Text(isGroup ? "Teams" : "Students", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                   Container(
+                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                     decoration: BoxDecoration(color: count > 0 ? Colors.indigo : Colors.grey.shade300, borderRadius: BorderRadius.circular(20)),
+                     child: Text("$count", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: count > 0 ? Colors.white : Colors.black45)),
+                   )
+                ],
+              )
             ],
           ),
-          const SizedBox(height: 10),
-          // Event Selector
-          DropdownButtonFormField<String>(
-            value: _selectedEventId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: "Select Event", 
-              prefixIcon: Icon(Icons.event_available),
-              border: OutlineInputBorder(),
-              filled: true,
-              fillColor: Colors.indigoAccent
-            ), // Light tint? No, maybe keep simple
-            hint: const Text("Choose an event to view registrations"),
-            items: filteredEvents.map((e) {
-              var d = e.data() as Map<String, dynamic>;
-              return DropdownMenuItem(value: e.id, child: Text(d['name'], overflow: TextOverflow.ellipsis));
-            }).toList(),
-            onChanged: (v) {
-              var evt = filteredEvents.firstWhere((e) => e.id == v);
-              setState(() {
-                _selectedEventId = v;
-                _selectedEventName = (evt.data() as Map)['name'];
-              });
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  // --- 2. EMPTY STATE ---
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.touch_app, size: 60, color: Colors.grey.shade300),
-          const SizedBox(height: 10),
-          const Text("Select Category & Event to view status", style: TextStyle(color: Colors.grey, fontSize: 16)),
-        ],
-      ),
-    );
-  }
+  // ==================== 2. DETAIL VIEW (MANAGE) ====================
 
-  // --- 3. TEAM GRID ---
-  Widget _buildTeamGrid() {
-    // Fetch Registrations for this Event
-    return StreamBuilder<QuerySnapshot>(
-      stream: db.collection('registrations').where('eventId', isEqualTo: _selectedEventId).snapshots(),
-      builder: (context, snap) {
-        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        
-        var regs = snap.data!.docs;
+  Widget _buildDetailView() {
+    if (_selectedEventDoc == null) return const SizedBox();
 
-        return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2, // Adjust for larger screens if needed
-            childAspectRatio: 0.8,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-          ),
-          itemCount: _teams.length,
-          itemBuilder: (context, index) {
-            String team = _teams[index];
-            // Get registrations for this team
-            var teamRegs = regs.where((r) => r['teamId'] == team).toList();
-            bool isRegistered = teamRegs.isNotEmpty;
+    var eData = _selectedEventDoc!.data() as Map<String, dynamic>;
+    // Filter registrations for this event only
+    var eventRegs = _registrations.where((r) => r['eventId'] == _selectedEventId).toList();
+    bool isGroup = eData['type'] == 'group';
 
-            return _buildTeamCard(team, teamRegs, isRegistered);
-          },
-        );
-      },
-    );
-  }
-
-  // --- TEAM CARD ---
-  Widget _buildTeamCard(String team, List<DocumentSnapshot> teamRegs, bool isRegistered) {
-    return Card(
-      elevation: isRegistered ? 3 : 0,
-      color: isRegistered ? Colors.white : Colors.grey.shade100,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: isRegistered ? Colors.green.withOpacity(0.5) : Colors.transparent, width: 2)
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isRegistered ? Colors.green.shade50 : Colors.grey.shade200,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-            ),
-            child: Column(
-              children: [
-                Text(team, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: isRegistered ? Colors.green : Colors.grey,
-                    borderRadius: BorderRadius.circular(4)
-                  ),
-                  child: Text(
-                    isRegistered ? "REGISTERED (${teamRegs.length})" : "NOT REGISTERED",
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                  ),
-                )
-              ],
-            ),
-          ),
-          
-          // Body (Student List)
-          Expanded(
-            child: isRegistered
-                ? ListView.separated(
-                    padding: const EdgeInsets.all(8),
-                    itemCount: teamRegs.length,
-                    separatorBuilder: (c,i) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      var data = teamRegs[i].data() as Map<String, dynamic>;
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(data['studentName'] ?? 'Unknown', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        subtitle: Text(data['chestNo']?.toString() ?? '', style: const TextStyle(fontSize: 10)),
-                        trailing: InkWell(
-                          onTap: () => _rejectEntry(teamRegs[i].id, team, data['studentName'], false),
-                          child: const Icon(Icons.close, color: Colors.red, size: 16),
-                        ),
-                      );
-                    },
-                  )
-                : const Center(
-                    child: Icon(Icons.person_off, color: Colors.grey),
-                  ),
-          ),
-
-          // Footer (Reject Team)
-          if (isRegistered)
-            InkWell(
-              onTap: () => _rejectEntry(null, team, "Entire Team", true),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Colors.redAccent,
-                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-                ),
-                child: const Text("REJECT TEAM", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+    return Column(
+      children: [
+        // Header with Back Button
+        Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.white,
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black87),
+                onPressed: () => setState(() { _selectedEventId = null; _selectedEventDoc = null; }),
               ),
-            )
-        ],
-      ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(eData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text("${eventRegs.length} Registrations • ${eData['category']}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+              if(eventRegs.isNotEmpty)
+                Chip(label: Text(isGroup ? "Group Event" : "Single Event"), backgroundColor: Colors.indigo.shade50, labelStyle: const TextStyle(color: Colors.indigo, fontSize: 11))
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        
+        // The List
+        Expanded(
+          child: eventRegs.isEmpty 
+          ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.inbox, size: 48, color: Colors.grey), const SizedBox(height: 10), const Text("No registrations yet.", style: TextStyle(color: Colors.grey))])) 
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: eventRegs.length,
+              itemBuilder: (context, index) {
+                var r = eventRegs[index];
+                var rData = r.data() as Map<String, dynamic>;
+                String regId = r.id;
+                
+                return Card(
+                  elevation: 0,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.indigo.shade50,
+                      child: Text("${index + 1}", style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
+                    ),
+                    title: Text(isGroup ? (rData['teamId'] ?? "Unknown Team") : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    subtitle: isGroup 
+                       ? Text("Team ID: ${rData['teamId']}", style: const TextStyle(fontSize: 12))
+                       : Text("Chest No: ${rData['chestNo'] ?? '-'} • ${rData['teamId'] ?? ''}", style: const TextStyle(fontSize: 12)),
+                    trailing: ElevatedButton.icon(
+                      onPressed: () => _confirmReject(regId, rData['teamId'], eData['name'], isGroup),
+                      icon: const Icon(Icons.cancel, size: 16),
+                      label: const Text("Reject"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade50,
+                        foregroundColor: Colors.red,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ),
+      ],
     );
   }
 
-  // --- LOGIC: REJECT / REMOVE ---
-  Future<void> _rejectEntry(String? docId, String team, String targetName, bool isTeamReject) async {
+  // ==================== 3. REJECT LOGIC ====================
+
+  Future<void> _confirmReject(String docId, String? teamId, String eventName, bool isGroup) async {
     final reasonCtrl = TextEditingController();
     
     bool? confirm = await showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(isTeamReject ? "Reject Team?" : "Remove Student?"),
+        title: const Text("Reject Registration?", style: TextStyle(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text("You are about to remove '$targetName' from $_selectedEventName."),
+            const Text("This will remove the entry permanently and notify the team."),
             const SizedBox(height: 10),
             TextField(
               controller: reasonCtrl,
-              decoration: const InputDecoration(labelText: "Reason (Optional)", border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: "Reason for rejection", border: OutlineInputBorder(), hintText: "e.g. Invalid document"),
             )
           ],
         ),
@@ -306,34 +298,24 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       String reason = reasonCtrl.text.isEmpty ? "Administrative Decision" : reasonCtrl.text;
       var batch = db.batch();
 
-      if (isTeamReject) {
-        // Delete all docs for this team in this event
-        var snap = await db.collection('registrations')
-            .where('eventId', isEqualTo: _selectedEventId)
-            .where('teamId', isEqualTo: team)
-            .get();
-        
-        for (var doc in snap.docs) {
-          batch.delete(doc.reference);
-        }
-      } else if (docId != null) {
-        // Delete single doc
-        batch.delete(db.collection('registrations').doc(docId));
-      }
+      // Delete the registration
+      batch.delete(db.collection('registrations').doc(docId));
 
       // Add Notification
-      var notifRef = db.collection('notifications').doc();
-      batch.set(notifRef, {
-        'teamId': team, // Target Team
-        'title': 'Registration Rejected',
-        'message': 'Your entry for $_selectedEventName ($targetName) was rejected. Reason: $reason',
-        'type': 'alert',
-        'timestamp': FieldValue.serverTimestamp(),
-        'read': false
-      });
+      if (teamId != null) {
+        var notifRef = db.collection('notifications').doc();
+        batch.set(notifRef, {
+          'teamId': teamId,
+          'title': 'Registration Rejected',
+          'message': 'Your entry for $eventName was rejected. Reason: $reason',
+          'type': 'alert',
+          'timestamp': FieldValue.serverTimestamp(),
+          'read': false
+        });
+      }
 
       await batch.commit();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Removed & Notification Sent")));
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Removed & Notification Sent")));
     }
   }
 }

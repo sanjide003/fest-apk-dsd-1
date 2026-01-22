@@ -1,227 +1,316 @@
 // File: lib/layout/responsive_layout.dart
-// Version: 9.1
-// Description: Fixed syntax error (Closing parenthesis).
+// Version: 10.0
+// Description: Global Search Logic implemented. Expanding Search Bar in AppBar.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../screens/settings_tab.dart';
-import '../screens/web_config_tab.dart';
+// Imports for screens
+import '../screens/dashboard_tab.dart';
 import '../screens/students_tab.dart';
 import '../screens/events_tab.dart';
-import '../screens/dashboard_tab.dart';
-import '../screens/publish_tab.dart';
 import '../screens/registrations_tab.dart';
+import '../screens/publish_tab.dart';
+import '../screens/web_config_tab.dart';
+import '../screens/settings_tab.dart';
 
+// Global ValueNotifier for Search
 final ValueNotifier<String> globalSearchQuery = ValueNotifier("");
 
 class ResponsiveMainLayout extends StatefulWidget {
   const ResponsiveMainLayout({super.key});
+
   @override
   State<ResponsiveMainLayout> createState() => _ResponsiveMainLayoutState();
 }
 
-class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> with TickerProviderStateMixin {
-  int _idx = 0; 
-  bool _isMenuOpen = false;
-  bool _isSearchExpanded = false;
-  final _searchCtrl = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
+class _ResponsiveMainLayoutState extends State<ResponsiveMainLayout> {
+  // Navigation State
+  int _selectedIndex = 0;
+  bool _isMenuExpanded = true; // For Desktop
   
-  late AnimationController _menuAnimCtrl;
+  // Search State
+  bool _isSearchExpanded = false;
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
 
-  final List<Widget> _screens = [
-    const DashboardTab(),
-    const StudentsTab(),
-    const EventsTab(),
-    const RegistrationsTab(),
-    const PublishTab(),
-    const WebConfigView(),
-    const SettingsView(),
-  ];
-
-  final List<String> _titles = ["Dashboard", "Students", "Events", "Registrations", "Publish", "Web Config", "Settings"];
-  final List<IconData> _icons = [Icons.dashboard, Icons.people, Icons.emoji_events, Icons.how_to_reg, Icons.emoji_events_outlined, Icons.language, Icons.settings];
+  // Data
+  String _festName = "Fest Manager";
+  String _tagline = "";
 
   @override
   void initState() {
     super.initState();
-    _menuAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
-  }
-
-  @override
-  void dispose() {
-    _menuAnimCtrl.dispose();
-    _searchCtrl.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
-
-  void _toggleMenu() {
-    setState(() {
-      _isMenuOpen = !_isMenuOpen;
-      if (_isMenuOpen) _menuAnimCtrl.forward(); else _menuAnimCtrl.reverse();
+    _loadConfig();
+    
+    // Listener to update global query
+    _searchCtrl.addListener(() {
+      globalSearchQuery.value = _searchCtrl.text;
     });
   }
 
-  void _selectTab(int index) {
-    setState(() {
-      _idx = index;
-      _isMenuOpen = false;
-      _menuAnimCtrl.reverse();
-      if (_isSearchExpanded) _closeSearch();
+  void _loadConfig() {
+    FirebaseFirestore.instance.collection('web_config').doc('main').snapshots().listen((snap) {
+      if (snap.exists) {
+        if (mounted) {
+          setState(() {
+            _festName = snap.data()?['festName'] ?? "Fest Manager";
+            _tagline = snap.data()?['tagline'] ?? "";
+          });
+        }
+      }
     });
   }
 
-  void _openSearch() {
-    setState(() {
-      _isSearchExpanded = true;
-      _searchFocus.requestFocus();
-    });
-  }
+  // List of Screens
+  final List<Widget> _screens = const [
+    DashboardTab(),
+    StudentsTab(),
+    EventsTab(),
+    RegistrationsTab(),
+    PublishTab(),
+    WebConfigView(),
+    SettingsView(),
+  ];
 
-  void _closeSearch() {
-    setState(() {
-      _isSearchExpanded = false;
-      _searchCtrl.clear();
-      globalSearchQuery.value = "";
-      _searchFocus.unfocus();
-    });
-  }
+  final List<String> _titles = [
+    "Dashboard",
+    "Students",
+    "Events",
+    "Registrations",
+    "Publish",
+    "Web Config",
+    "Settings"
+  ];
+
+  final List<IconData> _icons = [
+    Icons.dashboard_rounded,
+    Icons.people_alt_rounded,
+    Icons.event_note_rounded,
+    Icons.how_to_reg_rounded,
+    Icons.publish_rounded,
+    Icons.web_rounded,
+    Icons.settings_rounded,
+  ];
 
   @override
   Widget build(BuildContext context) {
-    bool isWeb = kIsWeb && MediaQuery.of(context).size.width > 800;
+    bool isMobile = MediaQuery.of(context).size.width < 800;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
+      body: Row(
+        children: [
+          // 1. SIDEBAR (Desktop)
+          if (!isMobile)
+            _buildSidebar(),
+
+          // 2. MAIN CONTENT
+          Expanded(
+            child: Column(
               children: [
-                _buildFloatingHeader(isWeb),
+                // APP BAR
+                _buildTopBar(isMobile),
+                
+                // BODY
                 Expanded(
-                  child: Row(
-                    children: [
-                      if (isWeb)
-                        NavigationRail(
-                          selectedIndex: _idx,
-                          onDestinationSelected: _selectTab,
-                          labelType: NavigationRailLabelType.all,
-                          destinations: _titles.asMap().entries.map((e) => NavigationRailDestination(icon: Icon(_icons[e.key]), label: Text(e.value))).toList(),
-                        ),
-                      Expanded(child: _screens[_idx]),
-                    ],
-                  ),
+                  child: _screens[_selectedIndex],
                 ),
               ],
             ),
-            
-            if (_isMenuOpen && !isWeb)
-              Positioned(
-                top: 80,
-                left: 16,
-                child: Material(
-                  elevation: 8, borderRadius: BorderRadius.circular(16), color: Colors.white,
-                  child: Container(
-                    width: 200, padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(_titles.length, (i) => ListTile(
-                          dense: true,
-                          leading: Icon(_icons[i], color: _idx == i ? Colors.indigo : Colors.grey),
-                          title: Text(_titles[i], style: TextStyle(fontWeight: _idx == i ? FontWeight.bold : FontWeight.normal, color: _idx == i ? Colors.indigo : Colors.black87)),
-                          selected: _idx == i, selectedTileColor: Colors.indigo.shade50,
-                          onTap: () => _selectTab(i),
-                        )),
-                    ),
-                  ),
-                ),
-              ),
-              
-            if (_isMenuOpen && !isWeb)
-              Positioned(top: 80, left: 220, right: 0, bottom: 0, child: GestureDetector(onTap: _toggleMenu, child: Container(color: Colors.transparent)))
-          ],
-        ),
+          ),
+        ],
       ),
+      // DRAWER (Mobile)
+      drawer: isMobile ? _buildDrawer() : null,
     );
   }
 
-  Widget _buildFloatingHeader(bool isWeb) {
-    bool allowSearch = (_idx == 1 || _idx == 2 || _idx == 4); 
-
+  // --- TOP BAR ---
+  Widget _buildTopBar(bool isMobile) {
     return Container(
-      height: 60,
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5, offset: const Offset(0, 2))
+        ]
       ),
-      child: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('settings').doc('home_config').snapshots(),
-        builder: (context, snap) {
-          var data = (snap.hasData && snap.data!.exists) ? snap.data!.data() as Map<String, dynamic> : {};
-          String festName = data['festName1'] ?? 'FEST ADMIN';
-          String tagline = data['tagline'] ?? '';
-          String logoUrl = data['logoUrl'] ?? '';
+      child: Row(
+        children: [
+          // Menu Icon (Mobile)
+          if (isMobile)
+            IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+          
+          const SizedBox(width: 8),
 
-          return Row(
-            children: [
-              const SizedBox(width: 8),
-              if (!isWeb)
-                IconButton(icon: AnimatedIcon(icon: AnimatedIcons.menu_close, progress: _menuAnimCtrl, color: Colors.indigo), onPressed: _toggleMenu),
+          // TITLE or SEARCH BAR
+          Expanded(
+            child: _isSearchExpanded
+                ? _buildSearchBar()
+                : _buildTitleArea(),
+          ),
 
-              Expanded(
-                child: _isSearchExpanded
-                  ? _buildSearchBar() 
-                  : _buildNormalHeaderContent(festName, tagline, allowSearch),
-              ),
-
-              if (logoUrl.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(right: 12, left: 8), child: CircleAvatar(backgroundColor: Colors.grey.shade100, backgroundImage: NetworkImage(logoUrl), radius: 18))
-              else
-                const Padding(padding: EdgeInsets.only(right: 12, left: 8), child: Icon(Icons.school, color: Colors.grey, size: 28)),
-            ],
-          );
-        },
+          // SEARCH TOGGLE
+          if (!_isSearchExpanded)
+            IconButton(
+              icon: const Icon(Icons.search, color: Colors.indigo),
+              tooltip: "Search",
+              onPressed: () {
+                setState(() {
+                  _isSearchExpanded = true;
+                });
+                _searchFocus.requestFocus();
+              },
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildNormalHeaderContent(String festName, String tagline, bool allowSearch) {
-    return Row(
+  Widget _buildTitleArea() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 8, right: 16),
-          child: Text(_titles[_idx].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+        Text(
+          _titles[_selectedIndex],
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
         ),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(festName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-              if(tagline.isNotEmpty) Text(tagline, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.normal, color: Colors.grey)),
-            ],
+        if (_tagline.isNotEmpty && _selectedIndex == 0)
+          Text(
+            _tagline,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        if (allowSearch)
-          IconButton(icon: const Icon(Icons.search, color: Colors.grey), onPressed: _openSearch, tooltip: "Search"),
       ],
     );
   }
 
   Widget _buildSearchBar() {
     return Container(
-      height: 40,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.indigo.withOpacity(0.3))),
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.indigo.withOpacity(0.2))
+      ),
       child: TextField(
         controller: _searchCtrl,
         focusNode: _searchFocus,
-        decoration: InputDecoration(hintText: "Search...", border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), isDense: true, suffixIcon: IconButton(icon: const Icon(Icons.close, size: 20, color: Colors.grey), onPressed: _closeSearch)),
-        onChanged: (v) => globalSearchQuery.value = v.toLowerCase(),
+        decoration: InputDecoration(
+          hintText: "Search in ${_titles[_selectedIndex]}...",
+          prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+            onPressed: () {
+              setState(() {
+                _isSearchExpanded = false;
+                _searchCtrl.clear();
+                globalSearchQuery.value = "";
+              });
+            },
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        ),
+      ),
+    );
+  }
+
+  // --- NAVIGATION (Sidebar & Drawer) ---
+  
+  Widget _buildSidebar() {
+    return Container(
+      width: _isMenuExpanded ? 240 : 70,
+      color: Colors.white,
+      child: Column(
+        children: [
+          // Logo Area
+          Container(
+            height: 64,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+            child: _isMenuExpanded 
+                ? Text(_festName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo), overflow: TextOverflow.ellipsis)
+                : const Icon(Icons.school, color: Colors.indigo),
+          ),
+          
+          // Menu Items
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: _screens.length,
+              itemBuilder: (context, index) {
+                bool isSel = _selectedIndex == index;
+                return InkWell(
+                  onTap: () => setState(() => _selectedIndex = index),
+                  child: Container(
+                    height: 50,
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSel ? Colors.indigo.shade50 : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 16),
+                        Icon(_icons[index], color: isSel ? Colors.indigo : Colors.grey.shade600, size: 22),
+                        if (_isMenuExpanded) ...[
+                          const SizedBox(width: 16),
+                          Text(_titles[index], style: TextStyle(color: isSel ? Colors.indigo : Colors.grey.shade800, fontWeight: isSel ? FontWeight.bold : FontWeight.normal))
+                        ]
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Collapse Button
+          IconButton(
+            icon: Icon(_isMenuExpanded ? Icons.chevron_left : Icons.chevron_right),
+            onPressed: () => setState(() => _isMenuExpanded = !_isMenuExpanded),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            decoration: const BoxDecoration(color: Colors.indigo),
+            accountName: Text(_festName, style: const TextStyle(fontWeight: FontWeight.bold)),
+            accountEmail: const Text("Admin Panel"),
+            currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.admin_panel_settings, color: Colors.indigo)),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _screens.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  leading: Icon(_icons[index], color: _selectedIndex == index ? Colors.indigo : Colors.grey),
+                  title: Text(_titles[index], style: TextStyle(color: _selectedIndex == index ? Colors.indigo : Colors.black87, fontWeight: _selectedIndex == index ? FontWeight.bold : FontWeight.normal)),
+                  selected: _selectedIndex == index,
+                  selectedTileColor: Colors.indigo.shade50,
+                  onTap: () {
+                    setState(() => _selectedIndex = index);
+                    Navigator.pop(context);
+                  },
+                );
+              },
+            ),
+          )
+        ],
       ),
     );
   }

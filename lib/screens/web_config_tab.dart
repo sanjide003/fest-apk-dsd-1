@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 7.0
-// Description: Added "Fest Year" field to change '2k25'. Team Leaders section shows all members added in Settings with Image support.
+// Version: 8.0
+// Description: Social Media Logic Fixed. Shows Active Links with Name & Icon, Inactive with Icon only.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,7 +17,7 @@ class _WebConfigViewState extends State<WebConfigView> {
 
   // Controllers
   final _festNameCtrl = TextEditingController();
-  final _festYearCtrl = TextEditingController(); // NEW: For "2k25" part
+  final _festYearCtrl = TextEditingController(); // For "2k25"
   final _taglineCtrl = TextEditingController();
   final _logoUrlCtrl = TextEditingController();
   final _btnColorCtrl = TextEditingController(text: "#2563EB"); 
@@ -29,7 +29,7 @@ class _WebConfigViewState extends State<WebConfigView> {
   // Social Media Data
   Map<String, String> _socialLinks = {}; 
   
-  // Supported Platforms
+  // Configuration for Supported Platforms
   final Map<String, Map<String, dynamic>> _socialMeta = {
     'wa': {'name': 'WhatsApp', 'icon': Icons.message, 'color': Colors.green, 'hint': 'https://wa.me/919876543210'},
     'ig': {'name': 'Instagram', 'icon': Icons.camera_alt, 'color': Colors.pink, 'hint': 'https://instagram.com/username'},
@@ -58,13 +58,14 @@ class _WebConfigViewState extends State<WebConfigView> {
     return url;
   }
 
-  void _loadData() {
-    db.collection('settings').doc('home_config').get().then((doc) {
+  Future<void> _loadData() async {
+    try {
+      var doc = await db.collection('settings').doc('home_config').get();
       if(doc.exists) {
         var d = doc.data()!;
         setState(() {
           _festNameCtrl.text = d['festName1'] ?? '';
-          _festYearCtrl.text = d['festName2'] ?? ''; // Load Year
+          _festYearCtrl.text = d['festName2'] ?? '';
           _taglineCtrl.text = d['tagline'] ?? '';
           _logoUrlCtrl.text = d['logoUrl'] ?? '';
           
@@ -75,12 +76,19 @@ class _WebConfigViewState extends State<WebConfigView> {
           _aboutSubCtrl.text = d['aboutSubtitle'] ?? '';
           _aboutTextCtrl.text = d['aboutText'] ?? '';
 
-          if(d['social'] != null) _socialLinks = Map<String, String>.from(d['social']);
+          // Safely load Social Links map
+          if(d['social'] != null) {
+            Map<String, dynamic> rawSocial = d['social'];
+            _socialLinks = rawSocial.map((key, value) => MapEntry(key, value.toString()));
+          }
+          
           if(d['leaders'] != null) _officials = List<Map<String, dynamic>>.from(d['leaders']);
           if(d['gallery'] != null) _gallery = List<String>.from(d['gallery']);
         });
       }
-    });
+    } catch (e) {
+      print("Error loading config: $e");
+    }
   }
 
   Future<void> _saveConfig() async {
@@ -89,7 +97,7 @@ class _WebConfigViewState extends State<WebConfigView> {
 
     Map<String, dynamic> data = {
       'festName1': _festNameCtrl.text,
-      'festName2': _festYearCtrl.text, // Save Year
+      'festName2': _festYearCtrl.text,
       'tagline': _taglineCtrl.text,
       'logoUrl': fixedLogo,
       'btnColor': _btnColorCtrl.text,
@@ -141,8 +149,7 @@ class _WebConfigViewState extends State<WebConfigView> {
 
   Widget _buildBasicSection() {
     return Card(
-      elevation: 0,
-      color: Colors.white,
+      elevation: 0, color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade300)),
       child: Padding(
         padding: const EdgeInsets.all(16), 
@@ -153,7 +160,6 @@ class _WebConfigViewState extends State<WebConfigView> {
             const SizedBox(height: 16),
             TextField(controller: _festNameCtrl, decoration: const InputDecoration(labelText: "Fest Name (Line 1)")),
             const SizedBox(height: 10),
-            // NEW FIELD FOR YEAR
             TextField(controller: _festYearCtrl, decoration: const InputDecoration(labelText: "Fest Year / Line 2 (e.g. 2k25)")),
             const SizedBox(height: 10),
             TextField(controller: _taglineCtrl, decoration: const InputDecoration(labelText: "Tagline")),
@@ -186,8 +192,12 @@ class _WebConfigViewState extends State<WebConfigView> {
     );
   }
 
-  // --- SOCIAL MEDIA SECTION ---
+  // --- SOCIAL MEDIA SECTION (FIXED LOGIC) ---
   Widget _buildSmartSocialSection() {
+    // Determine configured vs available
+    List<String> activeKeys = _socialLinks.keys.where((k) => _socialMeta.containsKey(k)).toList();
+    List<String> availableKeys = _socialMeta.keys.where((k) => !_socialLinks.containsKey(k)).toList();
+
     return Card(
       elevation: 0, color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade300)),
@@ -198,15 +208,16 @@ class _WebConfigViewState extends State<WebConfigView> {
           children: [
             const Text("Social Media Links", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 4),
-            const Text("Tap configured icons to edit. Tap grey icons to add.", style: TextStyle(fontSize: 11, color: Colors.grey)),
+            const Text("Configure links to show on the website footer.", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 16),
             
             // 1. ACTIVE LINKS (Icon + Name)
-            if (_socialLinks.isNotEmpty)
+            if (activeKeys.isNotEmpty) ...[
+              const Text("Active Links:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 12, runSpacing: 12,
-                children: _socialLinks.keys.map((key) {
-                  if (!_socialMeta.containsKey(key)) return const SizedBox();
+                children: activeKeys.map((key) {
                   var meta = _socialMeta[key]!;
                   return InkWell(
                     onTap: () => _openSocialDialog(key),
@@ -236,26 +247,26 @@ class _WebConfigViewState extends State<WebConfigView> {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 20),
+            ],
 
-            if (_socialLinks.isNotEmpty) const Divider(height: 30),
-
-            // 2. INACTIVE LINKS (Icons Only)
-            const Text("Available Platforms:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-            const SizedBox(height: 8),
-            Row(
-              children: _socialMeta.keys.where((k) => !_socialLinks.containsKey(k)).map((key) {
-                var meta = _socialMeta[key]!;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: IconButton.filled(
+            // 2. AVAILABLE LINKS (Icons Only)
+            if (availableKeys.isNotEmpty) ...[
+              const Text("Add Social Links:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                children: availableKeys.map((key) {
+                  var meta = _socialMeta[key]!;
+                  return IconButton.filled(
                     onPressed: () => _openSocialDialog(key),
                     style: IconButton.styleFrom(backgroundColor: Colors.grey.shade100),
                     icon: Icon(meta['icon'], color: Colors.grey),
                     tooltip: "Add ${meta['name']}",
-                  ),
-                );
-              }).toList(),
-            ),
+                  );
+                }).toList(),
+              ),
+            ]
           ]
         )
       )
@@ -277,10 +288,12 @@ class _WebConfigViewState extends State<WebConfigView> {
         children: [
           TextField(
             controller: linkCtrl,
+            keyboardType: TextInputType.url,
             decoration: InputDecoration(
-              labelText: "${meta['name']} URL",
+              labelText: "Paste ${meta['name']} Link",
               hintText: meta['hint'],
-              border: const OutlineInputBorder()
+              border: const OutlineInputBorder(),
+              isDense: true
             ),
           )
         ],
@@ -308,7 +321,7 @@ class _WebConfigViewState extends State<WebConfigView> {
     ));
   }
 
-  // --- TEAM LEADERS SECTION (UPDATED) ---
+  // --- TEAM LEADERS SECTION ---
   Widget _buildTeamLeadersSection() {
     return Card(
       color: Colors.blue.shade50, 
@@ -324,7 +337,6 @@ class _WebConfigViewState extends State<WebConfigView> {
             const Text("Add/Edit images for leaders added in Settings tab.", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 10),
             
-            // Stream to fetch Teams & Leaders from Settings
             StreamBuilder<DocumentSnapshot>(
               stream: db.collection('settings').doc('general').snapshots(), 
               builder: (context, snap) {

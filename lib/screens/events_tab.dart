@@ -1,6 +1,6 @@
 // File: lib/screens/events_tab.dart
-// Version: 8.0
-// Description: Restored Visuals (Badges), 3-Dot Menu, Delete Confirmation (Yes/No).
+// Version: 9.0
+// Description: Explicit Filter Labels added, 3-Dot Menu & Visuals Preserved.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -150,14 +150,15 @@ class _EventsTabState extends State<EventsTab> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _compactDropdown(width: 130, value: _filterCategory, hint: "Category", items: ["General", ..._categories], onChanged: (v){ _filterCategory=v; _applyFilters(); }),
+                    // Explicit Labels added
+                    _compactDropdown(width: 140, value: _filterCategory, label: "Select Category", items: ["General", ..._categories], onChanged: (v){ _filterCategory=v; _applyFilters(); }),
                     const SizedBox(width: 6),
-                    _compactDropdown(width: 100, value: _filterType, hint: "Type", items: ["Single", "Group"], onChanged: (v){ _filterType=v; _applyFilters(); }),
+                    _compactDropdown(width: 110, value: _filterType, label: "Select Type", items: ["Single", "Group"], onChanged: (v){ _filterType=v; _applyFilters(); }),
                     const SizedBox(width: 6),
-                    _compactDropdown(width: 110, value: _filterStage, hint: "Stage", items: ["On-Stage", "Off-Stage"], onChanged: (v){ _filterStage=v; _applyFilters(); }),
+                    _compactDropdown(width: 110, value: _filterStage, label: "Select Stage", items: ["On-Stage", "Off-Stage"], onChanged: (v){ _filterStage=v; _applyFilters(); }),
                     if(_isMixedMode) ...[
                       const SizedBox(width: 6),
-                      _compactDropdown(width: 110, value: _filterPart, hint: "Gender", items: ["Open", "Boys", "Girls"], displayItems: ["Common", "Boys Only", "Girls Only"], onChanged: (v){ _filterPart=v; _applyFilters(); })
+                      _compactDropdown(width: 120, value: _filterPart, label: "Select Gender", items: ["Open", "Boys", "Girls"], displayItems: ["Common", "Boys Only", "Girls Only"], onChanged: (v){ _filterPart=v; _applyFilters(); })
                     ]
                   ],
                 ),
@@ -171,15 +172,17 @@ class _EventsTabState extends State<EventsTab> {
     );
   }
 
-  Widget _compactDropdown({required double width, required String? value, required String hint, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
+  Widget _compactDropdown({required double width, required String? value, required String label, required List<String> items, List<String>? displayItems, required Function(String?) onChanged}) {
     return SizedBox(
-      width: width, height: 36,
+      width: width, height: 40,
       child: DropdownButtonFormField<String>(
-        value: value, hint: Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        value: value, 
         isExpanded: true,
-        icon: const Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
         decoration: InputDecoration(
-          isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          labelText: label, // Explicit Label
+          labelStyle: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+          floatingLabelBehavior: FloatingLabelBehavior.always, // Always show label on top
+          isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           filled: true, fillColor: Colors.grey.shade50,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: Colors.grey.shade300)),
         ),

@@ -1,8 +1,8 @@
 // File: lib/screens/dashboard_tab.dart
-// Version: 2.0
-// Description: Memory Leak Fixed, Modern UI with Score Bars and Animated Cards.
+// Version: 3.0
+// Description: Restored Trophy/Medal Icons, Accurate Counters, and Material 3 Design.
 
-import 'dart:async'; // For StreamSubscription
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -14,11 +14,9 @@ class DashboardTab extends StatefulWidget {
 
 class _DashboardTabState extends State<DashboardTab> {
   final db = FirebaseFirestore.instance;
-
-  // Stream Subscriptions (To fix memory leaks)
   final List<StreamSubscription> _streams = [];
 
-  // Data Containers
+  // Data
   List<DocumentSnapshot> _students = [];
   List<DocumentSnapshot> _events = [];
   List<DocumentSnapshot> _results = [];
@@ -38,10 +36,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
   @override
   void dispose() {
-    // Cancel all streams when leaving the page
-    for (var s in _streams) {
-      s.cancel();
-    }
+    for (var s in _streams) s.cancel();
     super.dispose();
   }
 
@@ -91,6 +86,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
     for (var res in _results) {
       var data = res.data() as Map<String, dynamic>;
+      // Default points: 1st=5, 2nd=3, 3rd=1
       var pts = data['points'] ?? {'first': 5, 'second': 3, 'third': 1};
       var winners = data['winners'] ?? {};
 
@@ -98,16 +94,21 @@ class _DashboardTabState extends State<DashboardTab> {
         if (winnerId == null) return;
         String teamName = "";
         
+        // Check if winner is a Team Name (Group Event)
         if (_teams.contains(winnerId)) {
           teamName = winnerId;
         } else {
+          // Check if winner is a Student ID
           try {
-            var student = _students.firstWhere((s) => s.id == winnerId);
-            teamName = student['teamId'];
+            var student = _students.firstWhere((s) => s.id == winnerId, orElse: () => _students.first); 
+            // Note: orElse returns a dummy to prevent crash, but we check ID match below
+            if(student.id == winnerId) {
+               teamName = student['teamId'];
+            }
           } catch (e) { return; }
         }
 
-        if (scores.containsKey(teamName)) {
+        if (teamName.isNotEmpty && scores.containsKey(teamName)) {
           scores[teamName]!['points'] += p;
           scores[teamName]![rankKey] += 1;
         }
@@ -137,26 +138,38 @@ class _DashboardTabState extends State<DashboardTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. HEADER & SUMMARY
-            const Text("Dashboard Overview", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            // 1. DASHBOARD HEADER
+            Row(
+              children: [
+                const Icon(Icons.dashboard_rounded, color: Colors.indigo, size: 28),
+                const SizedBox(width: 10),
+                const Text("Dashboard Overview", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              ],
+            ),
             const SizedBox(height: 16),
+            
+            // 2. SUMMARY CARDS
             _buildSummaryGrid(),
             const SizedBox(height: 30),
 
-            // 2. LIVE SCOREBOARD (Modern UI)
+            // 3. LIVE SCOREBOARD
             Row(
               children: [
-                const Icon(Icons.leaderboard, color: Colors.indigo),
-                const SizedBox(width: 8),
+                const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 28),
+                const SizedBox(width: 10),
                 const Text("Live Standings", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
               ],
             ),
             const SizedBox(height: 16),
-            _buildModernScoreboard(),
+            _buildScoreboard(),
             const SizedBox(height: 30),
 
-            // 3. DETAILED BREAKDOWN
-            const Text("Team Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+            // 4. DETAILED BREAKDOWN
+            const Row(children: [
+               Icon(Icons.analytics_outlined, color: Colors.grey),
+               SizedBox(width: 8),
+               Text("Detailed Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+            ]),
             const SizedBox(height: 12),
             _buildDetailedStats(),
             const SizedBox(height: 40),
@@ -166,53 +179,58 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // --- 1. MODERN SUMMARY CARDS ---
+  // --- 1. SUMMARY GRID (With Big Icons) ---
   Widget _buildSummaryGrid() {
     int totalStudents = _students.length;
     int totalEvents = _events.length;
     int published = _results.length;
     int pending = totalEvents - published;
+    if(pending < 0) pending = 0;
 
     return LayoutBuilder(builder: (context, constraints) {
-      int crossAxisCount = constraints.maxWidth > 800 ? 4 : 2;
+      int cols = constraints.maxWidth > 800 ? 4 : 2;
       return GridView.count(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
+        crossAxisCount: cols,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
         shrinkWrap: true,
-        childAspectRatio: 1.5,
+        childAspectRatio: 1.4,
         physics: const NeverScrollableScrollPhysics(),
         children: [
-          _modernStatCard("Students", "$totalStudents", Icons.people_alt, Colors.blue),
-          _modernStatCard("Events", "$totalEvents", Icons.event, Colors.purple),
-          _modernStatCard("Published", "$published", Icons.check_circle_outline, Colors.green),
-          _modernStatCard("Pending", "$pending", Icons.hourglass_empty, Colors.orange),
+          _summaryCard("Students", "$totalStudents", Icons.groups_rounded, Colors.blue),
+          _summaryCard("Events", "$totalEvents", Icons.local_activity_rounded, Colors.purple),
+          _summaryCard("Published", "$published", Icons.verified_rounded, Colors.green),
+          _summaryCard("Pending", "$pending", Icons.pending_actions_rounded, Colors.orange),
         ],
       );
     });
   }
 
-  Widget _modernStatCard(String label, String value, IconData icon, Color color) {
+  Widget _summaryCard(String label, String value, IconData icon, Color color) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: color.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))],
-        border: Border.all(color: Colors.grey.shade100)
+        border: Border.all(color: color.withOpacity(0.1)),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
       ),
       child: Stack(
         children: [
-          Positioned(right: -10, top: -10, child: Icon(icon, size: 80, color: color.withOpacity(0.1))),
+          Positioned(right: -15, top: -15, child: Icon(icon, size: 90, color: color.withOpacity(0.08))),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, color: color, size: 28),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, color: color, size: 24),
+                ),
                 const Spacer(),
-                Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87)),
-                Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.black87)),
+                Text(label, style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
               ],
             ),
           ),
@@ -221,13 +239,13 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // --- 2. MODERN SCOREBOARD (Bar Chart Style) ---
-  Widget _buildModernScoreboard() {
+  // --- 2. SCOREBOARD (With Trophies & Medals) ---
+  Widget _buildScoreboard() {
     var sortedTeams = _teamScores.entries.toList()..sort((a, b) => b.value['points'].compareTo(a.value['points']));
     
     if (sortedTeams.isEmpty) return const Text("No teams configured.");
     
-    // Find max score for progress bar calculation
+    // Max score for progress bar
     int maxScore = sortedTeams.isNotEmpty ? sortedTeams.first.value['points'] : 1;
     if(maxScore == 0) maxScore = 1;
 
@@ -239,6 +257,7 @@ class _DashboardTabState extends State<DashboardTab> {
         int colorVal = (_teamDetails[teamName]?['color']) ?? 0xFF2196F3;
         Color teamColor = Color(colorVal);
         double progress = stats['points'] / maxScore;
+        bool isLeader = index == 0 && stats['points'] > 0;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -246,26 +265,30 @@ class _DashboardTabState extends State<DashboardTab> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))]
+            border: isLeader ? Border.all(color: Colors.amber.withOpacity(0.5), width: 2) : Border.all(color: Colors.grey.shade100),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5, offset: const Offset(0, 2))]
           ),
           child: Column(
             children: [
               Row(
                 children: [
-                  // Rank Badge
-                  Container(
-                    width: 28, height: 28,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: index == 0 ? Colors.amber : (index == 1 ? Colors.grey.shade400 : (index == 2 ? Colors.brown.shade300 : Colors.grey.shade100)),
-                      shape: BoxShape.circle,
+                  // Rank Icon
+                  if (isLeader)
+                    const Icon(Icons.emoji_events, color: Colors.amber, size: 32)
+                  else
+                    Container(
+                      width: 28, height: 28,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: Colors.grey.shade100, shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade300)),
+                      child: Text("${index+1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
                     ),
-                    child: Text("#${index+1}", style: TextStyle(fontWeight: FontWeight.bold, color: index < 3 ? Colors.white : Colors.black54, fontSize: 12)),
-                  ),
+                  
                   const SizedBox(width: 12),
+                  // Team Name
                   Text(teamName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   const Spacer(),
-                  Text("${stats['points']} Pts", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  // Total Points
+                  Text("${stats['points']} Pts", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: teamColor)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -279,16 +302,16 @@ class _DashboardTabState extends State<DashboardTab> {
                   valueColor: AlwaysStoppedAnimation(teamColor)
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               // Medals Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _medalPill("🥇", stats['1st'], Colors.amber.withOpacity(0.2), Colors.amber.shade800),
-                  const SizedBox(width: 6),
-                  _medalPill("🥈", stats['2nd'], Colors.grey.shade200, Colors.grey.shade700),
-                  const SizedBox(width: 6),
-                  _medalPill("🥉", stats['3rd'], Colors.brown.withOpacity(0.1), Colors.brown),
+                   _medalCount("🥇", stats['1st'], Colors.amber),
+                   const SizedBox(width: 10),
+                   _medalCount("🥈", stats['2nd'], Colors.grey),
+                   const SizedBox(width: 10),
+                   _medalCount("🥉", stats['3rd'], Colors.brown),
                 ],
               )
             ],
@@ -298,12 +321,12 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  Widget _medalPill(String icon, int count, Color bg, Color fg) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Text("$icon $count", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: fg)),
-    );
+  Widget _medalCount(String emoji, int count, Color c) {
+    return Row(children: [
+      Text(emoji, style: const TextStyle(fontSize: 14)),
+      const SizedBox(width: 4),
+      Text("$count", style: TextStyle(fontWeight: FontWeight.bold, color: c, fontSize: 13))
+    ]);
   }
 
   // --- 3. BREAKDOWN ---
@@ -315,16 +338,28 @@ class _DashboardTabState extends State<DashboardTab> {
 
         return Card(
           elevation: 0,
+          margin: const EdgeInsets.only(bottom: 8),
           color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.grey.shade200)),
           child: ExpansionTile(
             shape: Border.all(color: Colors.transparent),
-            leading: CircleAvatar(backgroundColor: Color(colorVal), radius: 14, child: Text(team[0], style: const TextStyle(color: Colors.white, fontSize: 12))),
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Color(colorVal).withOpacity(0.1), shape: BoxShape.circle),
+              child: Icon(Icons.shield, color: Color(colorVal), size: 18),
+            ),
             title: Text(team, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            trailing: Chip(label: Text("$teamTotalStuds Students"), backgroundColor: Colors.grey.shade100, labelStyle: const TextStyle(fontSize: 10)),
+            trailing: Chip(
+              avatar: const Icon(Icons.person, size: 14, color: Colors.grey),
+              label: Text("$teamTotalStuds"), 
+              backgroundColor: Colors.grey.shade50, 
+              padding: EdgeInsets.zero,
+              labelPadding: const EdgeInsets.only(right: 8),
+            ),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             children: [
-              const Divider(),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
               ..._categories.map((cat) {
                  int count = _students.where((s) => s['teamId'] == team && s['categoryId'] == cat).length;
                  if (count == 0) return const SizedBox();
@@ -333,7 +368,11 @@ class _DashboardTabState extends State<DashboardTab> {
                    child: Row(
                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                      children: [
-                       Text(cat, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                       Row(children: [
+                         const Icon(Icons.label_important, size: 16, color: Colors.grey),
+                         const SizedBox(width: 8),
+                         Text(cat, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                       ]),
                        Text(count.toString(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
                      ],
                    ),

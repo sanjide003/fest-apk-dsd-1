@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 7.0
-// Description: Mobile Grid (2 Cols), Global Search Integration, Pop-up Details, Explicit "Not Participated" Status.
+// Version: 8.0
+// Description: Fixed Syntax Errors (Mismatched parentheses/brackets) for Production Build.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -60,7 +60,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   }
 
   void _initData() {
-    // 1. Load Settings (Categories & Teams)
+    // 1. Load Settings
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
@@ -69,7 +69,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
           _teamDetails = snap.data()?['teamDetails'] ?? {};
         });
       }
-    }));
+    });
 
     // 2. Load Events
     db.collection('events').orderBy('name').snapshots().listen((snap) {
@@ -123,7 +123,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       _filterStage = "All";
       _filterType = "All";
       _currentSearch = "";
-      // Reset global search text if possible or just ignore local logic
       _applyFilters();
     });
   }
@@ -414,7 +413,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                         trailing: IconButton(
                           icon: const Icon(Icons.block, size: 18, color: Colors.red),
                           onPressed: () {
-                            Navigator.pop(context); // Close dialog first to avoid context issues
+                            Navigator.pop(context); // Close dialog
                             _confirmReject(regId, rData['teamId'], eData['name'], isGroup);
                           },
                           tooltip: "Reject",

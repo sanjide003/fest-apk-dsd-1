@@ -1,6 +1,6 @@
 // File: lib/screens/web_config_tab.dart
-// Version: 8.0
-// Description: Social Media Logic Fixed. Shows Active Links with Name & Icon, Inactive with Icon only.
+// Version: 9.0
+// Description: Fixed Social Media Edit/Remove Issue (Map Mutability Fix). Added logic to remove link if text is empty on save.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,7 +17,7 @@ class _WebConfigViewState extends State<WebConfigView> {
 
   // Controllers
   final _festNameCtrl = TextEditingController();
-  final _festYearCtrl = TextEditingController(); // For "2k25"
+  final _festYearCtrl = TextEditingController(); 
   final _taglineCtrl = TextEditingController();
   final _logoUrlCtrl = TextEditingController();
   final _btnColorCtrl = TextEditingController(text: "#2563EB"); 
@@ -26,10 +26,10 @@ class _WebConfigViewState extends State<WebConfigView> {
   final _aboutSubCtrl = TextEditingController();
   final _aboutTextCtrl = TextEditingController();
 
-  // Social Media Data
+  // Social Media Data (Initialized as empty mutable map)
   Map<String, String> _socialLinks = {}; 
   
-  // Configuration for Supported Platforms
+  // Supported Platforms
   final Map<String, Map<String, dynamic>> _socialMeta = {
     'wa': {'name': 'WhatsApp', 'icon': Icons.message, 'color': Colors.green, 'hint': 'https://wa.me/919876543210'},
     'ig': {'name': 'Instagram', 'icon': Icons.camera_alt, 'color': Colors.pink, 'hint': 'https://instagram.com/username'},
@@ -63,31 +63,35 @@ class _WebConfigViewState extends State<WebConfigView> {
       var doc = await db.collection('settings').doc('home_config').get();
       if(doc.exists) {
         var d = doc.data()!;
-        setState(() {
-          _festNameCtrl.text = d['festName1'] ?? '';
-          _festYearCtrl.text = d['festName2'] ?? '';
-          _taglineCtrl.text = d['tagline'] ?? '';
-          _logoUrlCtrl.text = d['logoUrl'] ?? '';
-          
-          String colorHex = d['btnColor'] ?? '#2563EB';
-          _btnColorCtrl.text = colorHex;
-          try { _currentColor = Color(int.parse(colorHex.replaceAll('#', '0xFF'))); } catch (e) { _currentColor = Colors.blue; }
+        if(mounted) {
+          setState(() {
+            _festNameCtrl.text = d['festName1'] ?? '';
+            _festYearCtrl.text = d['festName2'] ?? '';
+            _taglineCtrl.text = d['tagline'] ?? '';
+            _logoUrlCtrl.text = d['logoUrl'] ?? '';
+            
+            String colorHex = d['btnColor'] ?? '#2563EB';
+            _btnColorCtrl.text = colorHex;
+            try { _currentColor = Color(int.parse(colorHex.replaceAll('#', '0xFF'))); } catch (e) { _currentColor = Colors.blue; }
 
-          _aboutSubCtrl.text = d['aboutSubtitle'] ?? '';
-          _aboutTextCtrl.text = d['aboutText'] ?? '';
+            _aboutSubCtrl.text = d['aboutSubtitle'] ?? '';
+            _aboutTextCtrl.text = d['aboutText'] ?? '';
 
-          // Safely load Social Links map
-          if(d['social'] != null) {
-            Map<String, dynamic> rawSocial = d['social'];
-            _socialLinks = rawSocial.map((key, value) => MapEntry(key, value.toString()));
-          }
-          
-          if(d['leaders'] != null) _officials = List<Map<String, dynamic>>.from(d['leaders']);
-          if(d['gallery'] != null) _gallery = List<String>.from(d['gallery']);
-        });
+            // FIXED: Ensure Map is Mutable
+            if(d['social'] != null) {
+              Map<String, dynamic> raw = d['social'];
+              _socialLinks = Map<String, String>.from(raw.map((k, v) => MapEntry(k, v.toString())));
+            } else {
+              _socialLinks = {};
+            }
+            
+            if(d['leaders'] != null) _officials = List<Map<String, dynamic>>.from(d['leaders']);
+            if(d['gallery'] != null) _gallery = List<String>.from(d['gallery']);
+          });
+        }
       }
     } catch (e) {
-      print("Error loading config: $e");
+      debugPrint("Error loading config: $e");
     }
   }
 
@@ -110,8 +114,10 @@ class _WebConfigViewState extends State<WebConfigView> {
     };
 
     await db.collection('settings').doc('home_config').set(data, SetOptions(merge: true));
-    setState(() => _isLoading = false);
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Configuration Saved Successfully!")));
+    if(mounted) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Configuration Saved Successfully!")));
+    }
   }
 
   @override
@@ -192,9 +198,8 @@ class _WebConfigViewState extends State<WebConfigView> {
     );
   }
 
-  // --- SOCIAL MEDIA SECTION (FIXED LOGIC) ---
+  // --- SOCIAL MEDIA SECTION (FIXED) ---
   Widget _buildSmartSocialSection() {
-    // Determine configured vs available
     List<String> activeKeys = _socialLinks.keys.where((k) => _socialMeta.containsKey(k)).toList();
     List<String> availableKeys = _socialMeta.keys.where((k) => !_socialLinks.containsKey(k)).toList();
 
@@ -211,7 +216,7 @@ class _WebConfigViewState extends State<WebConfigView> {
             const Text("Configure links to show on the website footer.", style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 16),
             
-            // 1. ACTIVE LINKS (Icon + Name)
+            // 1. ACTIVE LINKS
             if (activeKeys.isNotEmpty) ...[
               const Text("Active Links:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 8),
@@ -250,7 +255,7 @@ class _WebConfigViewState extends State<WebConfigView> {
               const SizedBox(height: 20),
             ],
 
-            // 2. AVAILABLE LINKS (Icons Only)
+            // 2. AVAILABLE LINKS
             if (availableKeys.isNotEmpty) ...[
               const Text("Add Social Links:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
@@ -290,9 +295,10 @@ class _WebConfigViewState extends State<WebConfigView> {
             controller: linkCtrl,
             keyboardType: TextInputType.url,
             decoration: InputDecoration(
-              labelText: "Paste ${meta['name']} Link",
+              labelText: "${meta['name']} URL",
               hintText: meta['hint'],
               border: const OutlineInputBorder(),
+              helperText: "Leave empty to remove",
               isDense: true
             ),
           )
@@ -310,9 +316,13 @@ class _WebConfigViewState extends State<WebConfigView> {
           ),
         ElevatedButton(
           onPressed: () {
-            if (linkCtrl.text.isNotEmpty) {
-              setState(() => _socialLinks[key] = linkCtrl.text.trim());
-            }
+            setState(() {
+              if (linkCtrl.text.trim().isNotEmpty) {
+                _socialLinks[key] = linkCtrl.text.trim();
+              } else {
+                _socialLinks.remove(key); // Remove if empty text
+              }
+            });
             Navigator.pop(c);
           }, 
           child: const Text("Save")

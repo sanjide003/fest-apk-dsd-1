@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 3.0
-// Description: Filters (Category/Stage) restored with 'All' option. Event Cards Grid. Reject Individual/Team with Reason.
+// Version: 4.0
+// Description: Added Type Filter, Clear Option, and Detailed Cards with Team-wise Participation Breakdown.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -16,18 +16,21 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   final db = FirebaseFirestore.instance;
 
   // State Management
-  String? _selectedEventId; // If null, show Grid. If set, show Details.
+  String? _selectedEventId; 
   DocumentSnapshot? _selectedEventDoc;
 
   // Filters
   String _filterCategory = "All";
   String _filterStage = "All";
+  String _filterType = "All"; // New Filter
 
   // Data
   List<DocumentSnapshot> _allEvents = [];
   List<DocumentSnapshot> _filteredEvents = [];
   List<DocumentSnapshot> _registrations = [];
   List<String> _categories = [];
+  List<String> _teams = []; // For breakdown
+  Map<String, dynamic> _teamDetails = {}; // For team colors
   bool _isLoading = true;
 
   @override
@@ -37,11 +40,13 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   }
 
   void _initData() {
-    // 1. Load Categories
+    // 1. Load Settings (Categories & Teams)
     db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
+          _teams = List<String>.from(snap.data()?['teams'] ?? []);
+          _teamDetails = snap.data()?['teamDetails'] ?? {};
         });
       }
     });
@@ -51,12 +56,12 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       if(mounted) {
         setState(() {
           _allEvents = snap.docs;
-          _applyFilters(); // Initial Filter
+          _applyFilters();
         });
       }
     });
 
-    // 3. Load All Registrations (For Counts)
+    // 3. Load Registrations
     db.collection('registrations').snapshots().listen((snap) {
       if(mounted) {
         setState(() {
@@ -78,9 +83,30 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
         // Stage Filter
         if (_filterStage != "All" && data['stage'] != _filterStage) return false;
 
+        // Type Filter (Case insensitive check)
+        String type = (data['type'] ?? '').toString().toLowerCase();
+        if (_filterType != "All" && type != _filterType.toLowerCase()) return false;
+
         return true;
       }).toList();
     });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _filterCategory = "All";
+      _filterStage = "All";
+      _filterType = "All";
+      _applyFilters();
+    });
+  }
+
+  Color _getTeamColor(String teamName) {
+    if (_teamDetails.containsKey(teamName)) {
+      int val = _teamDetails[teamName]['color'] ?? 0xFF9E9E9E;
+      return Color(val);
+    }
+    return Colors.grey;
   }
 
   @override
@@ -109,80 +135,90 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   // ==================== 1. FILTER HEADER ====================
 
   Widget _buildFilterHeader() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: Colors.white,
-      child: Row(
-        children: [
-          const Icon(Icons.filter_list, color: Colors.indigo),
-          const SizedBox(width: 12),
-          // Category Dropdown
-          Expanded(
-            child: SizedBox(
-              height: 40,
-              child: DropdownButtonFormField<String>(
-                value: _filterCategory,
-                decoration: InputDecoration(
-                  labelText: "Category",
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: true, fillColor: Colors.grey.shade50
+    bool hasFilter = _filterCategory!="All" || _filterStage!="All" || _filterType!="All";
+
+    return Card(
+      margin: const EdgeInsets.all(12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            const Icon(Icons.filter_list, color: Colors.indigo),
+            const SizedBox(width: 8),
+            // Expanded Scrollable Row for filters
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _filterDropdown(
+                      label: "Category", 
+                      value: _filterCategory, 
+                      items: ["All", ..._categories], 
+                      onChanged: (v) { _filterCategory = v!; _applyFilters(); }
+                    ),
+                    const SizedBox(width: 8),
+                    _filterDropdown(
+                      label: "Type", 
+                      value: _filterType, 
+                      items: ["All", "Single", "Group"], 
+                      onChanged: (v) { _filterType = v!; _applyFilters(); }
+                    ),
+                    const SizedBox(width: 8),
+                    _filterDropdown(
+                      label: "Stage", 
+                      value: _filterStage, 
+                      items: ["All", "On-Stage", "Off-Stage"], 
+                      onChanged: (v) { _filterStage = v!; _applyFilters(); }
+                    ),
+                  ],
                 ),
-                items: [
-                  const DropdownMenuItem(value: "All", child: Text("All Categories")),
-                  ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                ],
-                onChanged: (v) {
-                  if(v != null) {
-                    _filterCategory = v;
-                    _applyFilters();
-                  }
-                },
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          // Stage Dropdown
-          Expanded(
-            child: SizedBox(
-              height: 40,
-              child: DropdownButtonFormField<String>(
-                value: _filterStage,
-                decoration: InputDecoration(
-                  labelText: "Stage",
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: true, fillColor: Colors.grey.shade50
-                ),
-                items: const [
-                  DropdownMenuItem(value: "All", child: Text("All Stages")),
-                  DropdownMenuItem(value: "On-Stage", child: Text("On-Stage")),
-                  DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")),
-                ],
-                onChanged: (v) {
-                  if(v != null) {
-                    _filterStage = v;
-                    _applyFilters();
-                  }
-                },
-              ),
-            ),
-          ),
-        ],
+            
+            // Clear Button
+            if (hasFilter)
+              IconButton(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.filter_alt_off, color: Colors.red),
+                tooltip: "Clear Filters",
+              )
+          ],
+        ),
       ),
     );
   }
 
-  // ==================== 2. EVENT GRID VIEW ====================
+  Widget _filterDropdown({required String label, required String value, required List<String> items, required Function(String?) onChanged}) {
+    return SizedBox(
+      width: 130,
+      height: 40,
+      child: DropdownButtonFormField<String>(
+        value: items.contains(value) ? value : "All",
+        decoration: InputDecoration(
+          labelText: label,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          filled: true, fillColor: Colors.grey.shade50
+        ),
+        items: items.map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)))).toList(),
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  // ==================== 2. EVENT GRID VIEW (DETAILED) ====================
 
   Widget _buildEventGrid() {
     if (_filteredEvents.isEmpty) return const Center(child: Text("No events match filters."));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          int cols = constraints.maxWidth > 800 ? 4 : 2; 
+          int cols = constraints.maxWidth > 800 ? 3 : 1; // Bigger cards, so fewer columns
           return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -190,7 +226,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
               crossAxisCount: cols,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
-              childAspectRatio: 1.4,
+              childAspectRatio: 2.2, // Wide aspect ratio for details
             ),
             itemCount: _filteredEvents.length,
             itemBuilder: (context, index) {
@@ -205,14 +241,20 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   Widget _buildEventCard(DocumentSnapshot doc) {
     var data = doc.data() as Map<String, dynamic>;
     String eid = doc.id;
-    
-    // Calculate Count
-    int count = _registrations.where((r) => r['eventId'] == eid).length;
     bool isGroup = data['type'] == 'group';
+    
+    // Get all registrations for this event
+    var eventRegs = _registrations.where((r) => r['eventId'] == eid).toList();
+    int totalRegs = eventRegs.length;
+    
+    // Limits
+    int limit = isGroup 
+        ? (data['limits']?['maxTeams'] ?? 0)
+        : (data['limits']?['maxParticipants'] ?? 0);
 
     return Card(
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.grey.shade300)),
       child: InkWell(
         onTap: () {
           setState(() {
@@ -220,52 +262,101 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
             _selectedEventDoc = doc;
           });
         },
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
+              // 1. HEADER: Name & Badges
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
-                        child: Text(data['category'], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
-                      ),
-                      Icon(isGroup ? Icons.groups : Icons.person, size: 16, color: Colors.grey.shade400)
-                    ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(data['name'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 4,
+                          children: [
+                            _miniBadge(data['category'], Colors.blue.shade50, Colors.blue.shade700),
+                            _miniBadge(isGroup ? "Group" : "Single", Colors.purple.shade50, Colors.purple.shade700),
+                            _miniBadge(data['stage'] ?? 'Off-Stage', Colors.orange.shade50, Colors.orange.shade800),
+                          ],
+                        )
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    data['name'], 
-                    maxLines: 2, 
-                    overflow: TextOverflow.ellipsis, 
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)
-                  ),
+                  // Count Circle
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: totalRegs > 0 ? Colors.indigo.shade50 : Colors.grey.shade100, shape: BoxShape.circle),
+                    child: Text("$totalRegs", style: TextStyle(fontWeight: FontWeight.bold, color: totalRegs > 0 ? Colors.indigo : Colors.grey)),
+                  )
                 ],
               ),
               
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                   Text(data['stage'] ?? 'Off-Stage', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                   Container(
-                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                     decoration: BoxDecoration(color: count > 0 ? Colors.indigo : Colors.grey.shade300, borderRadius: BorderRadius.circular(20)),
-                     child: Text("$count Reg", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: count > 0 ? Colors.white : Colors.black45)),
-                   )
-                ],
+              const Divider(height: 12),
+
+              // 2. TEAM BREAKDOWN (Who participated?)
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6, runSpacing: 6,
+                    children: _teams.map((team) {
+                      int count = eventRegs.where((r) => r['teamId'] == team).length;
+                      if (count == 0) return const SizedBox();
+                      Color tc = _getTeamColor(team);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: tc.withOpacity(0.3)),
+                          borderRadius: BorderRadius.circular(12),
+                          color: tc.withOpacity(0.05)
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.circle, size: 8, color: tc),
+                            const SizedBox(width: 4),
+                            Text("$team: $count", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: tc)),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+
+              // 3. FOOTER: Limit Info
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 12, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Limit: $limit ${isGroup ? 'Teams' : 'Entries'}", 
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)
+                    ),
+                  ],
+                ),
               )
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _miniBadge(String text, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
+      child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: fg)),
     );
   }
 
@@ -316,6 +407,8 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                 var r = eventRegs[index];
                 var rData = r.data() as Map<String, dynamic>;
                 String regId = r.id;
+                String team = rData['teamId'] ?? 'Unknown';
+                Color tc = _getTeamColor(team);
                 
                 return Card(
                   elevation: 0,
@@ -324,13 +417,13 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     leading: CircleAvatar(
-                      backgroundColor: Colors.indigo.shade50,
-                      child: Text("${index + 1}", style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
+                      backgroundColor: tc.withOpacity(0.1),
+                      child: Text("${index + 1}", style: TextStyle(color: tc, fontWeight: FontWeight.bold)),
                     ),
-                    title: Text(isGroup ? (rData['teamId'] ?? "Unknown Team") : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    title: Text(isGroup ? team : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     subtitle: isGroup 
-                       ? Text("Team: ${rData['teamId']}", style: const TextStyle(fontSize: 12))
-                       : Text("Chest No: ${rData['chestNo'] ?? '-'} • Team: ${rData['teamId'] ?? ''}", style: const TextStyle(fontSize: 12)),
+                       ? Text("Team: $team", style: const TextStyle(fontSize: 12))
+                       : Text("Chest No: ${rData['chestNo'] ?? '-'} • Team: $team", style: const TextStyle(fontSize: 12)),
                     trailing: ElevatedButton.icon(
                       onPressed: () => _confirmReject(regId, rData['teamId'], eData['name'], isGroup),
                       icon: const Icon(Icons.block, size: 16),
@@ -356,7 +449,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   Future<void> _confirmReject(String docId, String? teamId, String eventName, bool isGroup) async {
     final reasonCtrl = TextEditingController();
     
-    // Determine title based on type
     String title = isGroup ? "Reject Team Registration?" : "Reject Student Registration?";
     String warning = isGroup 
         ? "This will remove the entire team '$teamId' from '$eventName'." 
@@ -401,10 +493,8 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       String reason = reasonCtrl.text.isEmpty ? "Administrative Decision" : reasonCtrl.text;
       var batch = db.batch();
 
-      // Delete Logic
       batch.delete(db.collection('registrations').doc(docId));
 
-      // Add Notification
       if (teamId != null) {
         var notifRef = db.collection('notifications').doc();
         batch.set(notifRef, {

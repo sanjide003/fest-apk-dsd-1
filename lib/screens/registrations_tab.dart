@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 2.0
-// Description: Event Cards Grid View, Click to Manage Registrations, Reject/Delete functionality.
+// Version: 3.0
+// Description: Filters (Category/Stage) restored with 'All' option. Event Cards Grid. Reject Individual/Team with Reason.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -19,8 +19,13 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   String? _selectedEventId; // If null, show Grid. If set, show Details.
   DocumentSnapshot? _selectedEventDoc;
 
+  // Filters
+  String _filterCategory = "All";
+  String _filterStage = "All";
+
   // Data
-  List<DocumentSnapshot> _events = [];
+  List<DocumentSnapshot> _allEvents = [];
+  List<DocumentSnapshot> _filteredEvents = [];
   List<DocumentSnapshot> _registrations = [];
   List<String> _categories = [];
   bool _isLoading = true;
@@ -43,10 +48,15 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
 
     // 2. Load Events
     db.collection('events').orderBy('name').snapshots().listen((snap) {
-      if(mounted) setState(() => _events = snap.docs);
+      if(mounted) {
+        setState(() {
+          _allEvents = snap.docs;
+          _applyFilters(); // Initial Filter
+        });
+      }
     });
 
-    // 3. Load All Registrations (To show counts on cards)
+    // 3. Load All Registrations (For Counts)
     db.collection('registrations').snapshots().listen((snap) {
       if(mounted) {
         setState(() {
@@ -57,53 +67,137 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     });
   }
 
+  void _applyFilters() {
+    setState(() {
+      _filteredEvents = _allEvents.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        
+        // Category Filter
+        if (_filterCategory != "All" && data['category'] != _filterCategory) return false;
+        
+        // Stage Filter
+        if (_filterStage != "All" && data['stage'] != _filterStage) return false;
+
+        return true;
+      }).toList();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
 
-    // Logic: Show Grid if no event selected, else show Details
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: _selectedEventId == null 
-          ? _buildEventGrid() 
-          : _buildDetailView(),
+      body: Column(
+        children: [
+          // SHOW FILTERS ONLY WHEN IN GRID VIEW
+          if (_selectedEventId == null) 
+            _buildFilterHeader(),
+            
+          // BODY (GRID OR DETAILS)
+          Expanded(
+            child: _selectedEventId == null 
+                ? _buildEventGrid() 
+                : _buildDetailView(),
+          ),
+        ],
+      ),
     );
   }
 
-  // ==================== 1. EVENT GRID VIEW ====================
+  // ==================== 1. FILTER HEADER ====================
+
+  Widget _buildFilterHeader() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      color: Colors.white,
+      child: Row(
+        children: [
+          const Icon(Icons.filter_list, color: Colors.indigo),
+          const SizedBox(width: 12),
+          // Category Dropdown
+          Expanded(
+            child: SizedBox(
+              height: 40,
+              child: DropdownButtonFormField<String>(
+                value: _filterCategory,
+                decoration: InputDecoration(
+                  labelText: "Category",
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true, fillColor: Colors.grey.shade50
+                ),
+                items: [
+                  const DropdownMenuItem(value: "All", child: Text("All Categories")),
+                  ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                ],
+                onChanged: (v) {
+                  if(v != null) {
+                    _filterCategory = v;
+                    _applyFilters();
+                  }
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Stage Dropdown
+          Expanded(
+            child: SizedBox(
+              height: 40,
+              child: DropdownButtonFormField<String>(
+                value: _filterStage,
+                decoration: InputDecoration(
+                  labelText: "Stage",
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true, fillColor: Colors.grey.shade50
+                ),
+                items: const [
+                  DropdownMenuItem(value: "All", child: Text("All Stages")),
+                  DropdownMenuItem(value: "On-Stage", child: Text("On-Stage")),
+                  DropdownMenuItem(value: "Off-Stage", child: Text("Off-Stage")),
+                ],
+                onChanged: (v) {
+                  if(v != null) {
+                    _filterStage = v;
+                    _applyFilters();
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 2. EVENT GRID VIEW ====================
 
   Widget _buildEventGrid() {
-    if (_events.isEmpty) return const Center(child: Text("No events found."));
+    if (_filteredEvents.isEmpty) return const Center(child: Text("No events match filters."));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 4, bottom: 12),
-            child: Text("All Events", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo)),
-          ),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              int cols = constraints.maxWidth > 800 ? 4 : 2; // Responsive Grid
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: cols,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 1.4,
-                ),
-                itemCount: _events.length,
-                itemBuilder: (context, index) {
-                  return _buildEventCard(_events[index]);
-                },
-              );
-            }
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          int cols = constraints.maxWidth > 800 ? 4 : 2; 
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cols,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.4,
+            ),
+            itemCount: _filteredEvents.length,
+            itemBuilder: (context, index) {
+              return _buildEventCard(_filteredEvents[index]);
+            },
+          );
+        }
       ),
     );
   }
@@ -112,12 +206,9 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     var data = doc.data() as Map<String, dynamic>;
     String eid = doc.id;
     
-    // Calculate Registration Count
+    // Calculate Count
     int count = _registrations.where((r) => r['eventId'] == eid).length;
-    // For group events, this counts teams. For single, students.
-    
     bool isGroup = data['type'] == 'group';
-    Color catColor = Colors.blueAccent; 
 
     return Card(
       elevation: 0,
@@ -144,8 +235,8 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                        child: Text(data['category'], style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
+                        child: Text(data['category'], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
                       ),
                       Icon(isGroup ? Icons.groups : Icons.person, size: 16, color: Colors.grey.shade400)
                     ],
@@ -163,11 +254,11 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                   Text(isGroup ? "Teams" : "Students", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                   Text(data['stage'] ?? 'Off-Stage', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                    Container(
                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                      decoration: BoxDecoration(color: count > 0 ? Colors.indigo : Colors.grey.shade300, borderRadius: BorderRadius.circular(20)),
-                     child: Text("$count", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: count > 0 ? Colors.white : Colors.black45)),
+                     child: Text("$count Reg", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: count > 0 ? Colors.white : Colors.black45)),
                    )
                 ],
               )
@@ -178,19 +269,18 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  // ==================== 2. DETAIL VIEW (MANAGE) ====================
+  // ==================== 3. DETAIL VIEW (MANAGE) ====================
 
   Widget _buildDetailView() {
     if (_selectedEventDoc == null) return const SizedBox();
 
     var eData = _selectedEventDoc!.data() as Map<String, dynamic>;
-    // Filter registrations for this event only
     var eventRegs = _registrations.where((r) => r['eventId'] == _selectedEventId).toList();
     bool isGroup = eData['type'] == 'group';
 
     return Column(
       children: [
-        // Header with Back Button
+        // Back Header
         Container(
           padding: const EdgeInsets.all(12),
           color: Colors.white,
@@ -206,18 +296,16 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(eData['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                    Text("${eventRegs.length} Registrations • ${eData['category']}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text("${eventRegs.length} Registrations", style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
                 ),
               ),
-              if(eventRegs.isNotEmpty)
-                Chip(label: Text(isGroup ? "Group Event" : "Single Event"), backgroundColor: Colors.indigo.shade50, labelStyle: const TextStyle(color: Colors.indigo, fontSize: 11))
             ],
           ),
         ),
         const Divider(height: 1),
         
-        // The List
+        // List of Registrations
         Expanded(
           child: eventRegs.isEmpty 
           ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.inbox, size: 48, color: Colors.grey), const SizedBox(height: 10), const Text("No registrations yet.", style: TextStyle(color: Colors.grey))])) 
@@ -241,12 +329,12 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
                     ),
                     title: Text(isGroup ? (rData['teamId'] ?? "Unknown Team") : (rData['studentName'] ?? "Unknown"), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     subtitle: isGroup 
-                       ? Text("Team ID: ${rData['teamId']}", style: const TextStyle(fontSize: 12))
-                       : Text("Chest No: ${rData['chestNo'] ?? '-'} • ${rData['teamId'] ?? ''}", style: const TextStyle(fontSize: 12)),
+                       ? Text("Team: ${rData['teamId']}", style: const TextStyle(fontSize: 12))
+                       : Text("Chest No: ${rData['chestNo'] ?? '-'} • Team: ${rData['teamId'] ?? ''}", style: const TextStyle(fontSize: 12)),
                     trailing: ElevatedButton.icon(
                       onPressed: () => _confirmReject(regId, rData['teamId'], eData['name'], isGroup),
-                      icon: const Icon(Icons.cancel, size: 16),
-                      label: const Text("Reject"),
+                      icon: const Icon(Icons.block, size: 16),
+                      label: Text(isGroup ? "Reject Team" : "Reject"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red.shade50,
                         foregroundColor: Colors.red,
@@ -263,23 +351,38 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  // ==================== 3. REJECT LOGIC ====================
+  // ==================== 4. REJECT LOGIC ====================
 
   Future<void> _confirmReject(String docId, String? teamId, String eventName, bool isGroup) async {
     final reasonCtrl = TextEditingController();
     
+    // Determine title based on type
+    String title = isGroup ? "Reject Team Registration?" : "Reject Student Registration?";
+    String warning = isGroup 
+        ? "This will remove the entire team '$teamId' from '$eventName'." 
+        : "This will remove this student from '$eventName'.";
+
     bool? confirm = await showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text("Reject Registration?", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("This will remove the entry permanently and notify the team."),
-            const SizedBox(height: 10),
+            Text(warning),
+            const SizedBox(height: 16),
+            const Text("Reason for Rejection:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 8),
             TextField(
               controller: reasonCtrl,
-              decoration: const InputDecoration(labelText: "Reason for rejection", border: OutlineInputBorder(), hintText: "e.g. Invalid document"),
+              maxLines: 2,
+              decoration: const InputDecoration(
+                hintText: "e.g. Document mismatch / Late entry",
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white
+              ),
             )
           ],
         ),
@@ -298,7 +401,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       String reason = reasonCtrl.text.isEmpty ? "Administrative Decision" : reasonCtrl.text;
       var batch = db.batch();
 
-      // Delete the registration
+      // Delete Logic
       batch.delete(db.collection('registrations').doc(docId));
 
       // Add Notification
@@ -315,7 +418,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       }
 
       await batch.commit();
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Removed & Notification Sent")));
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Rejected & Notification Sent")));
     }
   }
 }

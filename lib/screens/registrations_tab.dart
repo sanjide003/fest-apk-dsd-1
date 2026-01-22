@@ -1,6 +1,6 @@
 // File: lib/screens/registrations_tab.dart
-// Version: 10.0
-// Description: Added Search Bar in Header, Redesigned Event Cards with detailed Team Status (Participated/Not Participated).
+// Version: 11.0
+// Description: Global Search Integration (Expanding Icon Style), Mobile Grid (2 Cols), Detailed Cards, Pop-up Details.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -21,7 +21,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   String _filterStage = "All";
   String _filterType = "All"; 
   String _currentSearch = "";
-  final TextEditingController _searchCtrl = TextEditingController();
 
   // Data
   List<DocumentSnapshot> _allEvents = [];
@@ -36,14 +35,18 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
   @override
   void initState() {
     super.initState();
+    // 1. Initialize search with current value from Global Search
+    _currentSearch = globalSearchQuery.value.toLowerCase();
+    
     _initData();
-    // Sync with global search if needed, but we added a local one too
-    _searchCtrl.addListener(_onSearchChanged);
+    
+    // 2. Listen to global search changes
+    globalSearchQuery.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    globalSearchQuery.removeListener(_onSearchChanged);
     _debounceTimer?.cancel();
     super.dispose();
   }
@@ -53,7 +56,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       if(mounted) {
         setState(() {
-          _currentSearch = _searchCtrl.text.toLowerCase();
+          _currentSearch = globalSearchQuery.value.toLowerCase();
           _applyFilters();
         });
       }
@@ -100,7 +103,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
         final data = doc.data() as Map<String, dynamic>;
         String eid = doc.id;
         
-        // 1. Text Search (Name, Team, or Student)
+        // 1. Text Search (Name, Team, or Student) using Global Search Query
         if (_currentSearch.isNotEmpty) {
           bool nameMatch = data['name'].toString().toLowerCase().contains(_currentSearch);
           bool contentMatch = false;
@@ -137,8 +140,7 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       _filterCategory = "All";
       _filterStage = "All";
       _filterType = "All";
-      _searchCtrl.clear();
-      _currentSearch = "";
+      // We don't clear global search from here to maintain consistency
       _applyFilters();
     });
   }
@@ -166,10 +168,10 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     );
   }
 
-  // ==================== 1. FILTER HEADER (With Search) ====================
+  // ==================== 1. FILTER HEADER (Compact) ====================
 
   Widget _buildFilterHeader() {
-    bool hasFilter = _filterCategory!="All" || _filterStage!="All" || _filterType!="All" || _currentSearch.isNotEmpty;
+    bool hasFilter = _filterCategory!="All" || _filterStage!="All" || _filterType!="All";
 
     return Container(
       margin: const EdgeInsets.all(12),
@@ -179,50 +181,32 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade300),
       ),
-      child: Column(
+      child: Row(
         children: [
-          // Search Bar
-          TextField(
-            controller: _searchCtrl,
-            decoration: InputDecoration(
-              hintText: "Search Event, Team or Student...",
-              prefixIcon: const Icon(Icons.search, color: Colors.indigo),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
-              filled: true, fillColor: Colors.grey.shade50,
-              isDense: true,
+          const Icon(Icons.filter_list_rounded, color: Colors.indigo, size: 24),
+          const SizedBox(width: 12),
+          // Expanded Scrollable Row
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _filterDropdown(label: "Category", value: _filterCategory, items: ["All", ..._categories], onChanged: (v) { _filterCategory = v!; _applyFilters(); }),
+                  const SizedBox(width: 8),
+                  _filterDropdown(label: "Type", value: _filterType, items: ["All", "Single", "Group"], onChanged: (v) { _filterType = v!; _applyFilters(); }),
+                  const SizedBox(width: 8),
+                  _filterDropdown(label: "Stage", value: _filterStage, items: ["All", "On-Stage", "Off-Stage"], onChanged: (v) { _filterStage = v!; _applyFilters(); }),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 12),
           
-          // Dropdowns Row
-          Row(
-            children: [
-              const Icon(Icons.filter_list_rounded, color: Colors.grey, size: 24),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _filterDropdown(label: "Category", value: _filterCategory, items: ["All", ..._categories], onChanged: (v) { _filterCategory = v!; _applyFilters(); }),
-                      const SizedBox(width: 8),
-                      _filterDropdown(label: "Type", value: _filterType, items: ["All", "Single", "Group"], onChanged: (v) { _filterType = v!; _applyFilters(); }),
-                      const SizedBox(width: 8),
-                      _filterDropdown(label: "Stage", value: _filterStage, items: ["All", "On-Stage", "Off-Stage"], onChanged: (v) { _filterStage = v!; _applyFilters(); }),
-                    ],
-                  ),
-                ),
-              ),
-              if (hasFilter)
-                IconButton(
-                  onPressed: _clearFilters,
-                  icon: const Icon(Icons.highlight_off, color: Colors.red),
-                  tooltip: "Clear Filters",
-                )
-            ],
-          ),
+          if (hasFilter)
+            IconButton(
+              onPressed: _clearFilters,
+              icon: const Icon(Icons.highlight_off, color: Colors.red),
+              tooltip: "Clear Filters",
+            )
         ],
       ),
     );
@@ -264,7 +248,6 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           int cols = constraints.maxWidth > 800 ? 4 : 2; 
-          // Aspect ratio set to auto-fit content height roughly
           double ratio = constraints.maxWidth > 800 ? 0.6 : 0.55; 
 
           return GridView.builder(
@@ -292,8 +275,8 @@ class _RegistrationsTabState extends State<RegistrationsTab> {
     bool isGroup = data['type'] == 'group';
     
     var eventRegs = _registrations.where((r) => r['eventId'] == eid).toList();
+    int totalRegs = eventRegs.length;
     
-    // Limits
     int limit = isGroup 
         ? (data['limits']?['maxTeams'] ?? 0)
         : (data['limits']?['maxParticipants'] ?? 0);

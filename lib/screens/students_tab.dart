@@ -1,6 +1,6 @@
 // File: lib/screens/students_tab.dart
-// Version: 8.0
-// Description: Restored Rich UI, 3-Dot Menu, Delete Confirmation (Yes/No).
+// Version: 9.0
+// Description: Team Colors for Chest No, Explicit Filter Labels, 3-Dot Menu.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -30,6 +30,7 @@ class _StudentsTabState extends State<StudentsTab> {
   List<DocumentSnapshot> _allStudents = [];
   List<DocumentSnapshot> _filteredStudents = [];
   Map<String, dynamic> _chestConfig = {};
+  Map<String, dynamic> _teamDetails = {}; // To store team colors
   List<String> _teams = [];
   List<String> _categories = [];
   bool _isMixedMode = true;
@@ -61,12 +62,14 @@ class _StudentsTabState extends State<StudentsTab> {
   }
 
   void _initDataListeners() {
+    // Load Settings (Teams, Cats, Colors)
     _streams.add(db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
         setState(() {
           _teams = List<String>.from(snap.data()?['teams'] ?? []);
           _categories = List<String>.from(snap.data()?['categories'] ?? []);
           _chestConfig = snap.data()?['chestConfig'] ?? {};
+          _teamDetails = snap.data()?['teamDetails'] ?? {};
         });
       }
     }));
@@ -118,6 +121,15 @@ class _StudentsTabState extends State<StudentsTab> {
     });
   }
 
+  // Helper to get Team Color
+  Color _getTeamColor(String teamName) {
+    if (_teamDetails.containsKey(teamName)) {
+      int val = _teamDetails[teamName]['color'] ?? 0xFF3F51B5;
+      return Color(val);
+    }
+    return Colors.indigo; // Default fallback
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -141,7 +153,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 1. COMPACT ACTION CARD
+  // 1. COMPACT ACTION CARD (With Explicit Labels)
   Widget _buildCompactActionCard() {
     bool hasFilter = _filterTeam!=null || _filterCategory!=null || _filterGender!=null;
 
@@ -159,12 +171,13 @@ class _StudentsTabState extends State<StudentsTab> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _compactDropdown(width: 140, value: _filterTeam, label: "Team", items: _teams, onChanged: (v) { _filterTeam = v; _applyFilters(); }),
+                    // Explicit Labels added in _compactDropdown
+                    _compactDropdown(width: 150, value: _filterTeam, label: "Select Team", items: _teams, onChanged: (v) { _filterTeam = v; _applyFilters(); }),
                     const SizedBox(width: 8),
-                    _compactDropdown(width: 140, value: _filterCategory, label: "Category", items: _categories, onChanged: (v) { _filterCategory = v; _applyFilters(); }),
+                    _compactDropdown(width: 150, value: _filterCategory, label: "Select Category", items: _categories, onChanged: (v) { _filterCategory = v; _applyFilters(); }),
                     if (_isMixedMode) ...[
                       const SizedBox(width: 8),
-                      _compactDropdown(width: 100, value: _filterGender, label: "Gender", items: ["Male", "Female"], onChanged: (v) { _filterGender = v; _applyFilters(); }),
+                      _compactDropdown(width: 120, value: _filterGender, label: "Select Gender", items: ["Male", "Female"], onChanged: (v) { _filterGender = v; _applyFilters(); }),
                     ],
                   ],
                 ),
@@ -192,12 +205,15 @@ class _StudentsTabState extends State<StudentsTab> {
   Widget _compactDropdown({required double width, required String? value, required String label, required List<String> items, required Function(String?) onChanged}) {
     return SizedBox(
       width: width,
-      height: 36,
+      height: 40, // Slightly taller to accommodate label
       child: DropdownButtonFormField<String>(
         value: value, isExpanded: true,
         decoration: InputDecoration(
-          labelText: label, isDense: true, filled: true, fillColor: Colors.grey.shade50,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          labelText: label, // Explicit Label
+          labelStyle: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+          floatingLabelBehavior: FloatingLabelBehavior.always, // Always show label on top
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          filled: true, fillColor: Colors.grey.shade50,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: Colors.grey.shade300)),
         ),
         items: [
@@ -209,7 +225,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 2. STUDENT LIST (RESTORED VISUALS + 3 DOT MENU)
+  // 2. STUDENT LIST (Team Colors Applied)
   Widget _buildStudentList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_filteredStudents.isEmpty) return const Center(child: Text("No students found."));
@@ -224,20 +240,23 @@ class _StudentsTabState extends State<StudentsTab> {
         String gender = data['gender'] ?? 'Male';
         bool isMale = gender == 'Male';
         
+        // Get Team Color
+        Color teamColor = _getTeamColor(data['teamId']);
+
         return Card(
           elevation: 0,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.grey.shade200)),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            // Chest Number Box
+            // Chest Number Box with Team Color
             leading: Container(
               width: 50, height: 50,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.indigo, // Solid color for better visibility
+                color: teamColor, // Dynamic Team Color
                 borderRadius: BorderRadius.circular(8),
-                boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
+                boxShadow: [BoxShadow(color: teamColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
               ),
               child: Text(data['chestNo'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
             ),
@@ -252,11 +271,11 @@ class _StudentsTabState extends State<StudentsTab> {
                   // Team Badge
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blue.shade100)),
+                    decoration: BoxDecoration(color: teamColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: teamColor.withOpacity(0.3))),
                     child: Row(children: [
-                       const Icon(Icons.shield, size: 10, color: Colors.blue),
+                       Icon(Icons.shield, size: 10, color: teamColor),
                        const SizedBox(width: 4),
-                       Text(data['teamId'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                       Text(data['teamId'], style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: teamColor)),
                     ]),
                   ),
                   const SizedBox(width: 8),
@@ -331,9 +350,9 @@ class _StudentsTabState extends State<StudentsTab> {
         contentPadding: const EdgeInsets.all(16),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
            Row(children: [
-             Expanded(child: _compactDropdown(width: double.infinity, value: selTeam, label: "Team", items: _teams, onChanged: (v){ setDialogState(()=>selTeam=v); calcInstantChest(setDialogState); })),
+             Expanded(child: _compactDropdown(width: double.infinity, value: selTeam, label: "Select Team", items: _teams, onChanged: (v){ setDialogState(()=>selTeam=v); calcInstantChest(setDialogState); })),
              const SizedBox(width: 8),
-             Expanded(child: _compactDropdown(width: double.infinity, value: selCat, label: "Category", items: _categories, onChanged: (v){ setDialogState(()=>selCat=v); calcInstantChest(setDialogState); })),
+             Expanded(child: _compactDropdown(width: double.infinity, value: selCat, label: "Select Category", items: _categories, onChanged: (v){ setDialogState(()=>selCat=v); calcInstantChest(setDialogState); })),
            ]),
            if(_isMixedMode) ...[const SizedBox(height: 8), Row(children: [const Text("Gender: ", style: TextStyle(fontSize: 12)), Radio(value: "Male", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); calcInstantChest(setDialogState); }), const Text("M"), Radio(value: "Female", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); calcInstantChest(setDialogState); }), const Text("F")])],
            const Divider(height: 16),
@@ -363,7 +382,7 @@ class _StudentsTabState extends State<StudentsTab> {
           title: const Text("Edit"), contentPadding: const EdgeInsets.all(16),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
              TextField(controller: nCtrl, decoration: const InputDecoration(labelText: "Name", isDense: true, border: OutlineInputBorder())), const SizedBox(height: 8),
-             Row(children: [Expanded(child: _compactDropdown(width: double.infinity, value: team, label: "Team", items: _teams, onChanged: (v)=>setDialogState(()=>team=v!))), const SizedBox(width: 8), Expanded(child: _compactDropdown(width: double.infinity, value: cat, label: "Category", items: _categories, onChanged: (v)=>setDialogState(()=>cat=v!)))]),
+             Row(children: [Expanded(child: _compactDropdown(width: double.infinity, value: team, label: "Select Team", items: _teams, onChanged: (v)=>setDialogState(()=>team=v!))), const SizedBox(width: 8), Expanded(child: _compactDropdown(width: double.infinity, value: cat, label: "Select Category", items: _categories, onChanged: (v)=>setDialogState(()=>cat=v!)))]),
              if(_isMixedMode) Row(children: [Radio(value: "Male", groupValue: gen, onChanged: (v)=>setDialogState(()=>gen=v.toString())), const Text("M"), Radio(value: "Female", groupValue: gen, onChanged: (v)=>setDialogState(()=>gen=v.toString())), const Text("F")]),
              TextField(controller: cCtrl, decoration: const InputDecoration(labelText: "Chest No", isDense: true, border: OutlineInputBorder()))
           ]),
@@ -371,7 +390,6 @@ class _StudentsTabState extends State<StudentsTab> {
       )));
   }
 
-  // 4. CONFIRM DELETE DIALOG (YES/NO)
   Future<void> _deleteStudent(String id, String n) async {
     bool confirm = await showDialog(
       context: context, 

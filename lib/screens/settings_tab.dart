@@ -1,6 +1,6 @@
 // File: lib/screens/settings_tab.dart
-// Version: 6.0
-// Description: Advanced Settings. Team Edit (Color/Pass), Category Edit, Matrix Edit/Save Mode, Team Leaders with Drag & Drop.
+// Version: 7.0
+// Description: Added 3-Dot Menus for all items, Detailed Unlock Warning, and Confirmations.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,7 +20,7 @@ class _SettingsViewState extends State<SettingsView> {
   // State
   String _selectedMode = 'mixed';
   bool _isLoading = false;
-  bool _isMatrixEditing = false; // Toggle for Matrix Edit Mode
+  bool _isMatrixEditing = false; 
 
   // Colors Palette
   final List<Color> _colors = [
@@ -29,19 +29,19 @@ class _SettingsViewState extends State<SettingsView> {
     Colors.indigo, Colors.cyan, Colors.lime, Colors.amber
   ];
 
-  // Helper: Confirmation Dialog
+  // Helper: Simple Confirmation
   Future<bool> _confirm(String title, String msg, {bool isDestructive = false}) async {
     return await showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(title, style: TextStyle(color: isDestructive ? Colors.red : Colors.black87)),
+        title: Text(title, style: TextStyle(color: isDestructive ? Colors.red : Colors.black87, fontWeight: FontWeight.bold)),
         content: Text(msg),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () => Navigator.pop(c, true),
             style: ElevatedButton.styleFrom(backgroundColor: isDestructive ? Colors.red : Colors.indigo, foregroundColor: Colors.white),
-            child: Text(isDestructive ? "Confirm" : "Yes")
+            child: Text(isDestructive ? "Confirm Delete" : "Yes, Proceed")
           )
         ],
       )
@@ -67,7 +67,7 @@ class _SettingsViewState extends State<SettingsView> {
                 const SizedBox(height: 24),
                 _buildChestMatrixSection(),
                 const SizedBox(height: 24),
-                _buildTeamLeadersSection(), // New Section
+                _buildTeamLeadersSection(),
                 const SizedBox(height: 40),
                 _buildDangerZone(),
                 const SizedBox(height: 80),
@@ -77,7 +77,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ================= 1. MODE CONFIGURATION =================
+  // ================= 1. MODE CONFIGURATION (DETAILED WARNING) =================
   Widget _buildModeConfigSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('config').doc('main').snapshots(),
@@ -104,7 +104,12 @@ class _SettingsViewState extends State<SettingsView> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green.shade200)),
-                    child: Row(children: [const Icon(Icons.lock, color: Colors.green), const SizedBox(width: 10), Expanded(child: Text("Mode Locked: ${mode.toUpperCase()}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green))), OutlinedButton(onPressed: _unlockWithReset, child: const Text("Unlock"))]),
+                    child: Row(children: [
+                      const Icon(Icons.lock, color: Colors.green), 
+                      const SizedBox(width: 10), 
+                      Expanded(child: Text("Mode Locked: ${mode.toUpperCase()}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green))), 
+                      OutlinedButton(onPressed: _unlockWithDetailedWarning, child: const Text("Unlock"))
+                    ]),
                   )
                 else
                   Column(
@@ -143,23 +148,55 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _lockConfig() async {
-    if (await _confirm("Lock Mode?", "This will define the structure.")) {
+    if (await _confirm("Lock Configuration?", "This will define the structure of your fest. You can unlock it later, but it will require a reset.")) {
       await db.collection('config').doc('main').set({'mode': _selectedMode, 'locked': true});
     }
   }
 
-  Future<void> _unlockWithReset() async {
-    if (await _confirm("RESET REQUIRED", "Unlocking will DELETE ALL DATA. Are you sure?", isDestructive: true)) {
+  // DETAILED WARNING DIALOG
+  Future<void> _unlockWithDetailedWarning() async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.red), SizedBox(width: 8), Text("Unlock & Reset?", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text("Unlocking will perform a FACTORY RESET to prevent data corruption. The following data will be PERMANENTLY DELETED:", style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: 10),
+            Text("• All Registered Students", style: TextStyle(color: Colors.red)),
+            Text("• All Events & Points", style: TextStyle(color: Colors.red)),
+            Text("• All Registrations", style: TextStyle(color: Colors.red)),
+            Text("• All Published Results", style: TextStyle(color: Colors.red)),
+            SizedBox(height: 10),
+            Text("Are you absolutely sure?", style: TextStyle(fontStyle: FontStyle.italic)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Cancel")),
+          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Reset Everything"))
+        ],
+      )
+    ) ?? false;
+
+    if (confirm) {
       setState(() => _isLoading = true);
       var batch = db.batch();
-      // Add deletion logic here for all collections if needed
+      
+      var sSnap = await db.collection('students').get(); for (var d in sSnap.docs) batch.delete(d.reference);
+      var eSnap = await db.collection('events').get(); for (var d in eSnap.docs) batch.delete(d.reference);
+      var rSnap = await db.collection('registrations').get(); for (var d in rSnap.docs) batch.delete(d.reference);
+      var resSnap = await db.collection('results').get(); for (var d in resSnap.docs) batch.delete(d.reference);
+      
       batch.set(db.collection('config').doc('main'), {'locked': false, 'mode': 'mixed'});
       await batch.commit();
       setState(() { _isLoading = false; _selectedMode = 'mixed'; });
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("System Reset Successfully")));
     }
   }
 
-  // ================= 2. TEAMS MANAGEMENT (IMPROVED) =================
+  // ================= 2. TEAMS MANAGEMENT (3-DOT MENU) =================
   Widget _buildTeamsSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -187,14 +224,14 @@ class _SettingsViewState extends State<SettingsView> {
                   spacing: 8, runSpacing: 8,
                   children: teams.map((tName) {
                     Map d = details[tName] ?? {};
-                    return InkWell(
-                      onTap: () => _showEditTeamDialog(tName, teams, details),
-                      child: Chip(
-                        avatar: CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 8),
-                        label: Text(tName),
-                        backgroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
-                      ),
+                    return Chip(
+                      avatar: CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 8),
+                      label: Text(tName),
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      deleteIcon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
+                      onDeleted: () => _showTeamOptions(tName, teams, details), // Using deleteIcon slot for menu trigger
                     );
                   }).toList(),
                 )
@@ -204,6 +241,18 @@ class _SettingsViewState extends State<SettingsView> {
         );
       },
     );
+  }
+
+  void _showTeamOptions(String name, List teams, Map details) {
+    showModalBottomSheet(context: context, builder: (c) => Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text("Options for $name", style: const TextStyle(fontWeight: FontWeight.bold)),
+        const Divider(),
+        ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("Edit Team"), onTap: (){ Navigator.pop(c); _showEditTeamDialog(name, teams, details); }),
+        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Team"), onTap: (){ Navigator.pop(c); _deleteTeam(name, teams, details); }),
+      ])
+    ));
   }
 
   void _showAddTeamDialog(List teams, Map details) {
@@ -217,7 +266,7 @@ class _SettingsViewState extends State<SettingsView> {
           String name = nameCtrl.text.trim();
           if(name.isNotEmpty && !teams.contains(name)) {
             teams.add(name);
-            details[name] = {'color': Colors.blue.value, 'passcode': '1234'}; // Default
+            details[name] = {'color': Colors.blue.value, 'passcode': '1234'};
             await db.collection('settings').doc('general').update({'teams': teams, 'teamDetails': details});
             Navigator.pop(ctx);
           }
@@ -249,34 +298,34 @@ class _SettingsViewState extends State<SettingsView> {
             )).toList()),
           ]),
           actions: [
-            TextButton(onPressed: () async {
-              if(await _confirm("Delete Team?", "Deleting '$name' might cause issues.", isDestructive: true)) {
-                allTeams.remove(name); allDetails.remove(name);
-                await db.collection('settings').doc('general').update({'teams': allTeams, 'teamDetails': allDetails});
-                Navigator.pop(ctx);
-              }
-            }, style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text("Delete")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
             ElevatedButton(onPressed: () async {
               String newName = editNameCtrl.text.trim();
               if(newName.isNotEmpty) {
-                // Handle Rename
                 if (newName != name) {
                   int idx = allTeams.indexOf(name);
                   if(idx != -1) allTeams[idx] = newName;
                   allDetails.remove(name);
                 }
-                allDetails[newName] = {'color': selectedColor.value, 'passcode': editPassCtrl.text};
+                allDetails[newName] = {'color': selectedColor.value, 'passcode': editPassCtrl.text, 'leaders': d['leaders'] ?? []};
                 await db.collection('settings').doc('general').update({'teams': allTeams, 'teamDetails': allDetails});
                 Navigator.pop(ctx);
               }
-            }, child: const Text("Save"))
+            }, child: const Text("Update"))
           ],
         );
       }
     ));
   }
 
-  // ================= 3. CATEGORIES MANAGEMENT =================
+  Future<void> _deleteTeam(String name, List teams, Map details) async {
+    if(await _confirm("Delete Team?", "Deleting '$name' might cause issues with existing data.")) {
+      teams.remove(name); details.remove(name);
+      await db.collection('settings').doc('general').update({'teams': teams, 'teamDetails': details});
+    }
+  }
+
+  // ================= 3. CATEGORIES MANAGEMENT (3-DOT MENU) =================
   Widget _buildCategoriesSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -309,28 +358,10 @@ class _SettingsViewState extends State<SettingsView> {
                 ]),
                 const SizedBox(height: 16),
                 
-                Wrap(spacing: 8, runSpacing: 8, children: cats.map((c) => InputChip(
+                Wrap(spacing: 8, runSpacing: 8, children: cats.map((c) => Chip(
                   label: Text(c),
-                  onDeleted: () async {
-                    if(await _confirm("Delete?", "Remove category '$c'?")) {
-                      cats.remove(c);
-                      await db.collection('settings').doc('general').update({'categories': cats});
-                    }
-                  },
-                  onPressed: () {
-                    TextEditingController editCtrl = TextEditingController(text: c);
-                    showDialog(context: context, builder: (ctx) => AlertDialog(
-                      title: const Text("Edit Category"),
-                      content: TextField(controller: editCtrl),
-                      actions: [
-                        ElevatedButton(onPressed: () async {
-                          int idx = cats.indexOf(c);
-                          if(idx != -1) { cats[idx] = editCtrl.text.trim(); await db.collection('settings').doc('general').update({'categories': cats}); }
-                          Navigator.pop(ctx);
-                        }, child: const Text("Save"))
-                      ],
-                    ));
-                  },
+                  deleteIcon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
+                  onDeleted: () => _showCategoryOptions(c, cats),
                 )).toList())
               ],
             ),
@@ -340,7 +371,45 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ================= 4. CHEST MATRIX (EDIT/SAVE MODE) =================
+  void _showCategoryOptions(String cat, List allCats) {
+    showModalBottomSheet(context: context, builder: (c) => Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text("Options for $cat", style: const TextStyle(fontWeight: FontWeight.bold)),
+        const Divider(),
+        ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("Edit Category"), onTap: (){ Navigator.pop(c); _editCategory(cat, allCats); }),
+        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Category"), onTap: (){ Navigator.pop(c); _deleteCategory(cat, allCats); }),
+      ])
+    ));
+  }
+
+  void _editCategory(String cat, List allCats) {
+    TextEditingController editCtrl = TextEditingController(text: cat);
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text("Edit Category"),
+      content: TextField(controller: editCtrl),
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
+        ElevatedButton(onPressed: () async {
+          int idx = allCats.indexOf(cat);
+          if(idx != -1 && editCtrl.text.isNotEmpty) { 
+            allCats[idx] = editCtrl.text.trim(); 
+            await db.collection('settings').doc('general').update({'categories': allCats}); 
+          }
+          Navigator.pop(ctx);
+        }, child: const Text("Update"))
+      ],
+    ));
+  }
+
+  Future<void> _deleteCategory(String cat, List allCats) async {
+    if(await _confirm("Delete Category?", "Remove '$cat'? This may affect events.")) {
+      allCats.remove(cat);
+      await db.collection('settings').doc('general').update({'categories': allCats});
+    }
+  }
+
+  // ================= 4. CHEST MATRIX =================
   Widget _buildChestMatrixSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -351,9 +420,6 @@ class _SettingsViewState extends State<SettingsView> {
         List cats = data['categories'] ?? [];
         Map chestConfig = data['chestConfig'] ?? {};
 
-        // Temporary map to hold edits before saving
-        Map<String, int> tempEdits = {};
-
         return Card(
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade300)),
@@ -362,53 +428,32 @@ class _SettingsViewState extends State<SettingsView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                     const Row(children: [Icon(Icons.confirmation_number, color: Colors.orange), SizedBox(width: 8), Text("Chest Number Matrix", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
                     ElevatedButton.icon(
                       onPressed: () {
-                        if (_isMatrixEditing) {
-                          // SAVE LOGIC
-                          db.collection('settings').doc('general').update({'chestConfig': chestConfig}); // In real app, merge tempEdits
-                        }
+                        if (_isMatrixEditing) db.collection('settings').doc('general').update({'chestConfig': chestConfig});
                         setState(() => _isMatrixEditing = !_isMatrixEditing);
                       },
                       icon: Icon(_isMatrixEditing ? Icons.save : Icons.edit),
-                      label: Text(_isMatrixEditing ? "Save Changes" : "Edit"),
+                      label: Text(_isMatrixEditing ? "Save" : "Edit"),
                       style: ElevatedButton.styleFrom(backgroundColor: _isMatrixEditing ? Colors.green : Colors.blue, foregroundColor: Colors.white),
                     )
-                  ],
-                ),
+                ]),
                 const SizedBox(height: 16),
-                
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
                     border: TableBorder.all(color: Colors.grey.shade200),
-                    columns: [
-                      const DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold))),
-                      ...teams.map((t) => DataColumn(label: Text(t, style: TextStyle(fontWeight: FontWeight.bold)))),
-                    ],
+                    columns: [const DataColumn(label: Text("Category")), ...teams.map((t) => DataColumn(label: Text(t)))],
                     rows: cats.map((c) => DataRow(cells: [
                       DataCell(Text(c, style: const TextStyle(fontWeight: FontWeight.bold))),
                       ...teams.map((t) {
-                        String key = "$t-$c-Male"; // Default key structure
-                        String val = (chestConfig[key] ?? "").toString();
-                        return DataCell(
-                          _isMatrixEditing 
-                          ? TextFormField(
-                              initialValue: val,
-                              keyboardType: TextInputType.number,
-                              textAlign: TextAlign.center,
-                              decoration: const InputDecoration(border: InputBorder.none, hintText: "0"),
-                              onChanged: (v) {
-                                if(v.isNotEmpty) chestConfig[key] = int.parse(v);
-                              },
-                            )
-                          : Center(child: Text(val.isEmpty ? "-" : val)),
-                        );
+                        String key = "$t-$c-Male"; 
+                        return DataCell(_isMatrixEditing 
+                          ? TextFormField(initialValue: (chestConfig[key]??"").toString(), keyboardType: TextInputType.number, textAlign: TextAlign.center, onChanged: (v){ if(v.isNotEmpty) chestConfig[key]=int.parse(v); })
+                          : Center(child: Text((chestConfig[key]??"-").toString())));
                       })
                     ])).toList(),
                   ),
@@ -421,7 +466,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ================= 5. TEAM LEADERS (DRAG & DROP) =================
+  // ================= 5. TEAM LEADERS (3-DOT & DRAG) =================
   Widget _buildTeamLeadersSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -440,7 +485,7 @@ class _SettingsViewState extends State<SettingsView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Row(children: [Icon(Icons.groups, color: Colors.teal), SizedBox(width: 8), Text("Team Leaders", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
-                const Text("Add leaders here. Drag to reorder positions. Photos can be added in Web Config.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text("Add leaders. Drag to reorder. Changes reflect on public page.", style: TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 16),
                 
                 ...teams.map((tName) {
@@ -472,16 +517,19 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             for (int i = 0; i < leaders.length; i++)
               ListTile(
-                key: ValueKey(leaders[i]), // Use object itself or unique ID if available
+                key: ValueKey(leaders[i]), 
                 dense: true,
                 leading: const Icon(Icons.drag_handle, color: Colors.grey),
                 title: Text(leaders[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 subtitle: Text(leaders[i]['name']),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.blue), onPressed: () => _editLeader(name, i, leaders, allTeams, allDetails)),
-                    IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () => _deleteLeader(name, i, leaders, allTeams, allDetails)),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'edit') _editLeader(name, i, leaders, allDetails);
+                    if (v == 'delete') _deleteLeader(name, i, leaders, allDetails);
+                  },
+                  itemBuilder: (c) => [
+                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue), SizedBox(width: 8), Text("Edit")])),
+                    const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text("Delete")])),
                   ],
                 ),
               )
@@ -490,33 +538,23 @@ class _SettingsViewState extends State<SettingsView> {
             if (newIndex > oldIndex) newIndex -= 1;
             final item = leaders.removeAt(oldIndex);
             leaders.insert(newIndex, item);
-            
-            // Save Reorder
             allDetails[name]['leaders'] = leaders;
             await db.collection('settings').doc('general').update({'teamDetails': allDetails});
           },
         ),
-        TextButton.icon(
-          onPressed: () => _addLeader(name, leaders, allTeams, allDetails),
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text("Add Leader"),
-        )
+        TextButton.icon(onPressed: () => _addLeader(name, leaders, allDetails), icon: const Icon(Icons.add, size: 16), label: const Text("Add Leader"))
       ],
     );
   }
 
-  void _addLeader(String teamName, List leaders, List allTeams, Map allDetails) {
+  void _addLeader(String teamName, List leaders, Map allDetails) {
     TextEditingController roleCtrl = TextEditingController();
     TextEditingController nameCtrl = TextEditingController();
-    
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("Add Leader"),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role (e.g. Captain)")),
-        const SizedBox(height: 10),
-        TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
-      ]),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role")), const SizedBox(height: 10), TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name"))]),
       actions: [
+        TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
         ElevatedButton(onPressed: () async {
           if(roleCtrl.text.isNotEmpty && nameCtrl.text.isNotEmpty) {
             leaders.add({'role': roleCtrl.text, 'name': nameCtrl.text});
@@ -529,18 +567,14 @@ class _SettingsViewState extends State<SettingsView> {
     ));
   }
 
-  void _editLeader(String teamName, int index, List leaders, List allTeams, Map allDetails) {
+  void _editLeader(String teamName, int index, List leaders, Map allDetails) {
     TextEditingController roleCtrl = TextEditingController(text: leaders[index]['role']);
     TextEditingController nameCtrl = TextEditingController(text: leaders[index]['name']);
-    
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("Edit Leader"),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role")),
-        const SizedBox(height: 10),
-        TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
-      ]),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: roleCtrl, decoration: const InputDecoration(labelText: "Role")), const SizedBox(height: 10), TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name"))]),
       actions: [
+        TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
         ElevatedButton(onPressed: () async {
           leaders[index] = {'role': roleCtrl.text, 'name': nameCtrl.text};
           allDetails[teamName]['leaders'] = leaders;
@@ -551,8 +585,8 @@ class _SettingsViewState extends State<SettingsView> {
     ));
   }
 
-  void _deleteLeader(String teamName, int index, List leaders, List allTeams, Map allDetails) async {
-    if(await _confirm("Delete?", "Remove this leader?")) {
+  void _deleteLeader(String teamName, int index, List leaders, Map allDetails) async {
+    if(await _confirm("Delete Leader?", "Remove this leader?")) {
       leaders.removeAt(index);
       allDetails[teamName]['leaders'] = leaders;
       await db.collection('settings').doc('general').update({'teamDetails': allDetails});
@@ -562,8 +596,7 @@ class _SettingsViewState extends State<SettingsView> {
   // ================= 6. DANGER ZONE =================
   Widget _buildDangerZone() {
     return Card(
-      color: Colors.red.shade50,
-      elevation: 0,
+      color: Colors.red.shade50, elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.red.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -571,14 +604,8 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.warning, color: Colors.red), SizedBox(width: 8), Text("DANGER ZONE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red))]),
             const SizedBox(height: 10),
-            const Text("Actions here are irreversible.", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
-            const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: () async {
-                 if(await _confirm("FACTORY RESET", "DELETE ALL DATA?", isDestructive: true)) {
-                   // Add full reset logic here
-                 }
-              },
+              onPressed: _unlockWithDetailedWarning,
               icon: const Icon(Icons.delete_forever),
               label: const Text("FACTORY RESET DATA"),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),

@@ -1,6 +1,6 @@
 // File: lib/screens/settings_tab.dart
-// Version: 7.0
-// Description: Added 3-Dot Menus for all items, Detailed Unlock Warning, and Confirmations.
+// Version: 8.0
+// Description: Split Chest Matrix for Mixed Mode, Hex Color Input, and Popup Menus for Teams/Categories.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -41,7 +41,7 @@ class _SettingsViewState extends State<SettingsView> {
           ElevatedButton(
             onPressed: () => Navigator.pop(c, true),
             style: ElevatedButton.styleFrom(backgroundColor: isDestructive ? Colors.red : Colors.indigo, foregroundColor: Colors.white),
-            child: Text(isDestructive ? "Confirm Delete" : "Yes, Proceed")
+            child: Text(isDestructive ? "Confirm" : "Yes")
           )
         ],
       )
@@ -77,7 +77,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ================= 1. MODE CONFIGURATION (DETAILED WARNING) =================
+  // ================= 1. MODE CONFIGURATION =================
   Widget _buildModeConfigSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('config').doc('main').snapshots(),
@@ -120,7 +120,7 @@ class _SettingsViewState extends State<SettingsView> {
                         children: [
                           Expanded(child: _modeOption('mixed', "Mixed (Boys & Girls)", Icons.wc)),
                           const SizedBox(width: 10),
-                          Expanded(child: _modeOption('boys', "Single Gender", Icons.male)),
+                          Expanded(child: _modeOption('boys', "Single Gender", Icons.male)), // Can be used for Girls Only too logically
                         ],
                       ),
                       const SizedBox(height: 15),
@@ -148,34 +148,30 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _lockConfig() async {
-    if (await _confirm("Lock Configuration?", "This will define the structure of your fest. You can unlock it later, but it will require a reset.")) {
+    if (await _confirm("Lock Configuration?", "This will define the structure of your fest.")) {
       await db.collection('config').doc('main').set({'mode': _selectedMode, 'locked': true});
     }
   }
 
-  // DETAILED WARNING DIALOG
   Future<void> _unlockWithDetailedWarning() async {
     bool confirm = await showDialog(
       context: context,
       builder: (c) => AlertDialog(
         title: const Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.red), SizedBox(width: 8), Text("Unlock & Reset?", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
-        content: Column(
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text("Unlocking will perform a FACTORY RESET to prevent data corruption. The following data will be PERMANENTLY DELETED:", style: TextStyle(fontWeight: FontWeight.bold)),
+          children: [
+            Text("Unlocking will perform a FACTORY RESET. All data will be DELETED:", style: TextStyle(fontWeight: FontWeight.bold)),
             SizedBox(height: 10),
-            Text("• All Registered Students", style: TextStyle(color: Colors.red)),
-            Text("• All Events & Points", style: TextStyle(color: Colors.red)),
-            Text("• All Registrations", style: TextStyle(color: Colors.red)),
-            Text("• All Published Results", style: TextStyle(color: Colors.red)),
+            Text("• Students, Events, Points, Results", style: TextStyle(color: Colors.red)),
             SizedBox(height: 10),
-            Text("Are you absolutely sure?", style: TextStyle(fontStyle: FontStyle.italic)),
+            Text("Are you sure?", style: TextStyle(fontStyle: FontStyle.italic)),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Cancel")),
-          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Reset Everything"))
+          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Reset"))
         ],
       )
     ) ?? false;
@@ -183,12 +179,11 @@ class _SettingsViewState extends State<SettingsView> {
     if (confirm) {
       setState(() => _isLoading = true);
       var batch = db.batch();
-      
-      var sSnap = await db.collection('students').get(); for (var d in sSnap.docs) batch.delete(d.reference);
-      var eSnap = await db.collection('events').get(); for (var d in eSnap.docs) batch.delete(d.reference);
-      var rSnap = await db.collection('registrations').get(); for (var d in rSnap.docs) batch.delete(d.reference);
-      var resSnap = await db.collection('results').get(); for (var d in resSnap.docs) batch.delete(d.reference);
-      
+      var cols = ['students', 'events', 'registrations', 'results'];
+      for(var c in cols) {
+        var snap = await db.collection(c).get();
+        for(var d in snap.docs) batch.delete(d.reference);
+      }
       batch.set(db.collection('config').doc('main'), {'locked': false, 'mode': 'mixed'});
       await batch.commit();
       setState(() { _isLoading = false; _selectedMode = 'mixed'; });
@@ -196,7 +191,7 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  // ================= 2. TEAMS MANAGEMENT (3-DOT MENU) =================
+  // ================= 2. TEAMS MANAGEMENT (POPUP MENU) =================
   Widget _buildTeamsSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -224,14 +219,34 @@ class _SettingsViewState extends State<SettingsView> {
                   spacing: 8, runSpacing: 8,
                   children: teams.map((tName) {
                     Map d = details[tName] ?? {};
-                    return Chip(
-                      avatar: CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 8),
-                      label: Text(tName),
-                      backgroundColor: Colors.white,
-                      side: BorderSide(color: Colors.grey.shade300),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      deleteIcon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
-                      onDeleted: () => _showTeamOptions(tName, teams, details), // Using deleteIcon slot for menu trigger
+                    return Container(
+                      padding: const EdgeInsets.only(left: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 6),
+                          const SizedBox(width: 8),
+                          Text(tName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          // UPDATED: Popup Menu Button instead of Modal Bottom Sheet
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
+                            tooltip: "Options",
+                            onSelected: (val) {
+                              if (val == 'edit') _showEditTeamDialog(tName, teams, details);
+                              if (val == 'delete') _deleteTeam(tName, teams, details);
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18, color: Colors.blue), SizedBox(width: 8), Text("Edit")])),
+                              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text("Delete")])),
+                            ],
+                          )
+                        ],
+                      ),
                     );
                   }).toList(),
                 )
@@ -241,18 +256,6 @@ class _SettingsViewState extends State<SettingsView> {
         );
       },
     );
-  }
-
-  void _showTeamOptions(String name, List teams, Map details) {
-    showModalBottomSheet(context: context, builder: (c) => Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text("Options for $name", style: const TextStyle(fontWeight: FontWeight.bold)),
-        const Divider(),
-        ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("Edit Team"), onTap: (){ Navigator.pop(c); _showEditTeamDialog(name, teams, details); }),
-        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Team"), onTap: (){ Navigator.pop(c); _deleteTeam(name, teams, details); }),
-      ])
-    ));
   }
 
   void _showAddTeamDialog(List teams, Map details) {
@@ -279,21 +282,54 @@ class _SettingsViewState extends State<SettingsView> {
     Map d = allDetails[name] ?? {};
     TextEditingController editNameCtrl = TextEditingController(text: name);
     TextEditingController editPassCtrl = TextEditingController(text: d['passcode'] ?? '');
+    
     Color selectedColor = Color(d['color'] ?? 0xFF2196F3);
+    // Hex Controller
+    TextEditingController hexCtrl = TextEditingController(text: '#${selectedColor.value.toRadixString(16).substring(2).toUpperCase()}');
 
     showDialog(context: context, builder: (ctx) => StatefulBuilder(
       builder: (context, setDialogState) {
         return AlertDialog(
           title: const Text("Edit Team"),
+          scrollable: true,
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: editNameCtrl, decoration: const InputDecoration(labelText: "Team Name")),
             const SizedBox(height: 10),
             TextField(controller: editPassCtrl, decoration: const InputDecoration(labelText: "Login Passcode")),
             const SizedBox(height: 15),
-            const Text("Team Color"),
-            const SizedBox(height: 8),
+            
+            // Hex Input & Preview
+            Row(
+              children: [
+                const Text("Color: "),
+                Container(width: 24, height: 24, decoration: BoxDecoration(color: selectedColor, shape: BoxShape.circle, border: Border.all(color: Colors.grey))),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: hexCtrl,
+                    decoration: const InputDecoration(labelText: "Hex (e.g. #FF0000)", isDense: true),
+                    onChanged: (val) {
+                      if (val.length >= 7) {
+                        try {
+                          Color c = Color(int.parse(val.replaceAll('#', '0xFF')));
+                          setDialogState(() => selectedColor = c);
+                        } catch(e) {}
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            
+            // Color Palette
             Wrap(spacing: 5, children: _colors.map((c) => InkWell(
-              onTap: () => setDialogState(() => selectedColor = c),
+              onTap: () {
+                setDialogState(() {
+                  selectedColor = c;
+                  hexCtrl.text = '#${c.value.toRadixString(16).substring(2).toUpperCase()}';
+                });
+              },
               child: Container(width: 32, height: 32, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: selectedColor == c ? Border.all(width: 3, color: Colors.black) : null)),
             )).toList()),
           ]),
@@ -325,7 +361,7 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  // ================= 3. CATEGORIES MANAGEMENT (3-DOT MENU) =================
+  // ================= 3. CATEGORIES MANAGEMENT (POPUP MENU) =================
   Widget _buildCategoriesSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -358,10 +394,30 @@ class _SettingsViewState extends State<SettingsView> {
                 ]),
                 const SizedBox(height: 16),
                 
-                Wrap(spacing: 8, runSpacing: 8, children: cats.map((c) => Chip(
-                  label: Text(c),
-                  deleteIcon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
-                  onDeleted: () => _showCategoryOptions(c, cats),
+                Wrap(spacing: 8, runSpacing: 8, children: cats.map((c) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.grey.shade300)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(c, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 4),
+                      // UPDATED: Popup Menu
+                      PopupMenuButton<String>(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
+                        onSelected: (val) {
+                          if (val == 'edit') _editCategory(c, cats);
+                          if (val == 'delete') _deleteCategory(c, cats);
+                        },
+                        itemBuilder: (c) => [
+                          const PopupMenuItem(value: 'edit', height: 40, child: Text("Edit", style: TextStyle(fontSize: 13))),
+                          const PopupMenuItem(value: 'delete', height: 40, child: Text("Delete", style: TextStyle(fontSize: 13, color: Colors.red))),
+                        ],
+                      )
+                    ],
+                  ),
                 )).toList())
               ],
             ),
@@ -369,18 +425,6 @@ class _SettingsViewState extends State<SettingsView> {
         );
       }
     );
-  }
-
-  void _showCategoryOptions(String cat, List allCats) {
-    showModalBottomSheet(context: context, builder: (c) => Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text("Options for $cat", style: const TextStyle(fontWeight: FontWeight.bold)),
-        const Divider(),
-        ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text("Edit Category"), onTap: (){ Navigator.pop(c); _editCategory(cat, allCats); }),
-        ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Category"), onTap: (){ Navigator.pop(c); _deleteCategory(cat, allCats); }),
-      ])
-    ));
   }
 
   void _editCategory(String cat, List allCats) {
@@ -403,70 +447,113 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _deleteCategory(String cat, List allCats) async {
-    if(await _confirm("Delete Category?", "Remove '$cat'? This may affect events.")) {
+    if(await _confirm("Delete Category?", "Remove '$cat'?")) {
       allCats.remove(cat);
       await db.collection('settings').doc('general').update({'categories': allCats});
     }
   }
 
-  // ================= 4. CHEST MATRIX =================
+  // ================= 4. CHEST MATRIX (UPDATED FOR MIXED) =================
   Widget _buildChestMatrixSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
       builder: (context, snap) {
         if (!snap.hasData) return const SizedBox();
         var data = snap.data!.exists ? snap.data!.data() as Map<String, dynamic> : {};
-        List teams = data['teams'] ?? [];
-        List cats = data['categories'] ?? [];
+        List teams = List.from(data['teams'] ?? []);
+        List cats = List.from(data['categories'] ?? []);
         Map chestConfig = data['chestConfig'] ?? {};
 
-        return Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade300)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Row(children: [Icon(Icons.confirmation_number, color: Colors.orange), SizedBox(width: 8), Text("Chest Number Matrix", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        if (_isMatrixEditing) db.collection('settings').doc('general').update({'chestConfig': chestConfig});
-                        setState(() => _isMatrixEditing = !_isMatrixEditing);
-                      },
-                      icon: Icon(_isMatrixEditing ? Icons.save : Icons.edit),
-                      label: Text(_isMatrixEditing ? "Save" : "Edit"),
-                      style: ElevatedButton.styleFrom(backgroundColor: _isMatrixEditing ? Colors.green : Colors.blue, foregroundColor: Colors.white),
+        return StreamBuilder<DocumentSnapshot>(
+          stream: db.collection('config').doc('main').snapshots(),
+          builder: (context, configSnap) {
+            String mode = (configSnap.hasData && configSnap.data!.exists) 
+                ? (configSnap.data!.data() as Map)['mode'] ?? 'mixed' 
+                : 'mixed';
+            bool isMixed = mode == 'mixed';
+
+            return Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade300)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Row(children: [Icon(Icons.confirmation_number, color: Colors.orange), SizedBox(width: 8), Text("Chest No. Matrix", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            if (_isMatrixEditing) db.collection('settings').doc('general').update({'chestConfig': chestConfig});
+                            setState(() => _isMatrixEditing = !_isMatrixEditing);
+                          },
+                          icon: Icon(_isMatrixEditing ? Icons.save : Icons.edit),
+                          label: Text(_isMatrixEditing ? "Save" : "Edit"),
+                          style: ElevatedButton.styleFrom(backgroundColor: _isMatrixEditing ? Colors.green : Colors.blue, foregroundColor: Colors.white),
+                        )
+                    ]),
+                    const SizedBox(height: 16),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
+                        border: TableBorder.all(color: Colors.grey.shade200),
+                        columns: [const DataColumn(label: Text("Category")), ...teams.map((t) => DataColumn(label: Text(t)))],
+                        rows: cats.expand<DataRow>((c) {
+                          List<DataRow> rows = [];
+                          
+                          // Row 1: Male (Shown if Mixed or Boys)
+                          if (isMixed || mode == 'boys') {
+                            rows.add(DataRow(cells: [
+                              DataCell(Text(isMixed ? "$c (Boys)" : c, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800))),
+                              ...teams.map((t) {
+                                String key = "$t-$c-Male";
+                                return _buildMatrixCell(key, chestConfig);
+                              })
+                            ]));
+                          }
+
+                          // Row 2: Female (Shown if Mixed or Girls)
+                          if (isMixed || mode == 'girls') {
+                            rows.add(DataRow(cells: [
+                              DataCell(Text(isMixed ? "$c (Girls)" : c, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.pink.shade800))),
+                              ...teams.map((t) {
+                                String key = "$t-$c-Female";
+                                return _buildMatrixCell(key, chestConfig);
+                              })
+                            ]));
+                          }
+                          return rows;
+                        }).toList(),
+                      ),
                     )
-                ]),
-                const SizedBox(height: 16),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
-                    border: TableBorder.all(color: Colors.grey.shade200),
-                    columns: [const DataColumn(label: Text("Category")), ...teams.map((t) => DataColumn(label: Text(t)))],
-                    rows: cats.map((c) => DataRow(cells: [
-                      DataCell(Text(c, style: const TextStyle(fontWeight: FontWeight.bold))),
-                      ...teams.map((t) {
-                        String key = "$t-$c-Male"; 
-                        return DataCell(_isMatrixEditing 
-                          ? TextFormField(initialValue: (chestConfig[key]??"").toString(), keyboardType: TextInputType.number, textAlign: TextAlign.center, onChanged: (v){ if(v.isNotEmpty) chestConfig[key]=int.parse(v); })
-                          : Center(child: Text((chestConfig[key]??"-").toString())));
-                      })
-                    ])).toList(),
-                  ),
-                )
-              ],
-            ),
-          ),
+                  ],
+                ),
+              ),
+            );
+          }
         );
       }
     );
   }
 
-  // ================= 5. TEAM LEADERS (3-DOT & DRAG) =================
+  DataCell _buildMatrixCell(String key, Map config) {
+    return DataCell(
+      _isMatrixEditing
+        ? TextFormField(
+            initialValue: (config[key] ?? "").toString(),
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            decoration: const InputDecoration(border: InputBorder.none, hintText: "-"),
+            onChanged: (v) {
+              if (v.isNotEmpty) config[key] = int.parse(v);
+            },
+          )
+        : Center(child: Text((config[key] ?? "-").toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+    );
+  }
+
+  // ================= 5. TEAM LEADERS =================
   Widget _buildTeamLeadersSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -485,7 +572,7 @@ class _SettingsViewState extends State<SettingsView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Row(children: [Icon(Icons.groups, color: Colors.teal), SizedBox(width: 8), Text("Team Leaders", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
-                const Text("Add leaders. Drag to reorder. Changes reflect on public page.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text("Add leaders. Drag to reorder.", style: TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 16),
                 
                 ...teams.map((tName) {
@@ -496,7 +583,7 @@ class _SettingsViewState extends State<SettingsView> {
                     title: Text(tName, style: const TextStyle(fontWeight: FontWeight.bold)),
                     leading: CircleAvatar(backgroundColor: Color(tData['color'] ?? 0xFF000000), radius: 10),
                     children: [
-                      _buildLeadersList(tName, leaders, allTeams: teams, allDetails: allDetails)
+                      _buildLeadersList(tName, leaders, allDetails: allDetails)
                     ],
                   );
                 }).toList()
@@ -508,7 +595,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  Widget _buildLeadersList(String name, List leaders, {required List allTeams, required Map allDetails}) {
+  Widget _buildLeadersList(String name, List leaders, {required Map allDetails}) {
     return Column(
       children: [
         ReorderableListView(
@@ -517,7 +604,7 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             for (int i = 0; i < leaders.length; i++)
               ListTile(
-                key: ValueKey(leaders[i]), 
+                key: ValueKey(leaders[i]['name'] + i.toString()), 
                 dense: true,
                 leading: const Icon(Icons.drag_handle, color: Colors.grey),
                 title: Text(leaders[i]['role'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
@@ -528,8 +615,8 @@ class _SettingsViewState extends State<SettingsView> {
                     if (v == 'delete') _deleteLeader(name, i, leaders, allDetails);
                   },
                   itemBuilder: (c) => [
-                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue), SizedBox(width: 8), Text("Edit")])),
-                    const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text("Delete")])),
+                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 18), SizedBox(width: 8), Text("Edit")])),
+                    const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text("Delete")])),
                   ],
                 ),
               )

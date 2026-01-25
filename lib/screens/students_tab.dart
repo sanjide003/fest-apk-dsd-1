@@ -1,6 +1,6 @@
 // File: lib/screens/students_tab.dart
 // Version: 10.0
-// Description: Bulk Selection (Long Press), Select All, Bulk Edit/Delete, and Smart Chest No Auto-Generation.
+// Description: Bulk Selection, Bulk Edit (Clear Chest No), Smart Chest Auto-fill, Team Colors Preserved.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -33,7 +33,8 @@ class _StudentsTabState extends State<StudentsTab> {
   // Data
   List<DocumentSnapshot> _allStudents = [];
   List<DocumentSnapshot> _filteredStudents = [];
-  Map<String, dynamic> _chestConfig = {}; // Matrix from Settings
+  Map<String, dynamic> _chestConfig = {};
+  Map<String, dynamic> _teamDetails = {};
   List<String> _teams = [];
   List<String> _categories = [];
   bool _isMixedMode = true;
@@ -56,7 +57,7 @@ class _StudentsTabState extends State<StudentsTab> {
 
   void _onSearchChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       if (mounted) {
         setState(() {
           _currentSearch = globalSearchQuery.value.toLowerCase();
@@ -67,81 +68,115 @@ class _StudentsTabState extends State<StudentsTab> {
   }
 
   void _initDataListeners() {
-    // 1. Listen to Config (Mixed Mode)
-    _streams.add(db.collection('config').doc('main').snapshots().listen((snap) {
-      if (mounted) setState(() => _isMixedMode = (snap.data()?['mode'] ?? 'mixed') == 'mixed');
-    }));
-
-    // 2. Listen to Settings (Teams, Cats, Chest Matrix)
+    // 1. Settings
     _streams.add(db.collection('settings').doc('general').snapshots().listen((snap) {
       if (snap.exists && mounted) {
-        var d = snap.data()!;
         setState(() {
-          _teams = List<String>.from(d['teams'] ?? []);
-          _categories = List<String>.from(d['categories'] ?? []);
-          _chestConfig = d['chestConfig'] ?? {};
+          _teams = List<String>.from(snap.data()?['teams'] ?? []);
+          _categories = List<String>.from(snap.data()?['categories'] ?? []);
+          _chestConfig = snap.data()?['chestConfig'] ?? {};
+          _teamDetails = snap.data()?['teamDetails'] ?? {};
         });
       }
     }));
 
-    // 3. Listen to Students
-    _streams.add(db.collection('students').snapshots().listen((snap) {
-      if (mounted) {
+    // 2. Config
+    db.collection('config').doc('main').get().then((snap) {
+      if (snap.exists && mounted) {
+        setState(() {
+          _isMixedMode = (snap.data()?['mode'] ?? 'mixed') == 'mixed';
+        });
+      }
+    });
+
+    // 3. Students
+    _streams.add(db.collection('students').orderBy('chestNo').snapshots().listen((snap) {
+      if(mounted) {
         setState(() {
           _allStudents = snap.docs;
           _isLoading = false;
-          _applyFilters();
         });
+        _applyFilters();
       }
     }));
   }
 
   void _applyFilters() {
-    _filteredStudents = _allStudents.where((doc) {
-      var d = doc.data() as Map<String, dynamic>;
-      bool matchSearch = _currentSearch.isEmpty || 
-          d['name'].toString().toLowerCase().contains(_currentSearch) ||
-          d['chestNo'].toString().contains(_currentSearch);
-      
-      bool matchTeam = _filterTeam == null || d['teamId'] == _filterTeam;
-      bool matchCat = _filterCategory == null || d['categoryId'] == _filterCategory;
-      bool matchGender = _filterGender == null || d['gender'] == _filterGender;
+    setState(() {
+      _filteredStudents = _allStudents.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        
+        if (_filterTeam != null && data['teamId'] != _filterTeam) return false;
+        if (_filterCategory != null && data['categoryId'] != _filterCategory) return false;
+        if (_filterGender != null && data['gender'] != _filterGender) return false;
+        
+        if (_currentSearch.isNotEmpty) {
+          String name = data['name'].toString().toLowerCase();
+          String chest = data['chestNo'].toString();
+          if (!name.contains(_currentSearch) && !chest.contains(_currentSearch)) return false;
+        }
+        return true;
+      }).toList();
+    });
+  }
 
-      return matchSearch && matchTeam && matchCat && matchGender;
-    }).toList();
-    
-    // Sort by Chest No
-    _filteredStudents.sort((a, b) => (a['chestNo'] as int).compareTo(b['chestNo'] as int));
+  void _clearFilters() {
+    setState(() {
+      _filterTeam = null;
+      _filterCategory = null;
+      _filterGender = null;
+      _applyFilters();
+    });
+  }
+
+  Color _getTeamColor(String teamName) {
+    if (_teamDetails.containsKey(teamName)) {
+      int val = _teamDetails[teamName]['color'] ?? 0xFF3F51B5;
+      return Color(val);
+    }
+    return Colors.indigo;
   }
 
   // --- AUTO CHEST NUMBER LOGIC ---
   int _calculateNextChestNo(String team, String category, String gender) {
-    // 1. Get Base Number from Matrix
-    String key = "$team-$category-$gender";
-    int base = _chestConfig[key] ?? 0;
+    // Key format based on Settings Tab logic
+    // If Mixed: "Team-Cat-Gender" (e.g. Red-Senior-Male)
+    // If Settings stored only "Male"/"Female" suffix regardless of mixed mode logic in previous step
+    // let's follow the standard pattern:
+    String key = "$team-$category-$gender"; // e.g. "Red-Senior-Male"
     
-    if (base == 0) return 0; // Not configured in settings
+    // Check if chestConfig has this key
+    int base = 0;
+    if (_chestConfig.containsKey(key)) {
+      base = _chestConfig[key] ?? 0;
+    } else {
+      // Fallback or try finding without gender if mode differs? 
+      // Assuming settings_tab saves exactly as "$team-$category-$gender"
+    }
+    
+    if (base == 0) return 0; // Not configured
 
-    // 2. Find max current chest no in this group
     int maxCurrent = base;
     
-    // Efficiently check existing students in memory
+    // Find max in existing list
     for (var doc in _allStudents) {
       var d = doc.data() as Map;
-      if (d['teamId'] == team && d['categoryId'] == category && d['gender'] == gender) {
-        int cNo = d['chestNo'] ?? 0;
-        if (cNo > maxCurrent) maxCurrent = cNo;
+      if (d['teamId'] == team && d['categoryId'] == category) {
+        // Gender check depending on mixed mode strictly? 
+        // Best to check exact gender match for sequence.
+        if (d['gender'] == gender) {
+           int cNo = d['chestNo'] ?? 0;
+           if (cNo > maxCurrent) maxCurrent = cNo;
+        }
       }
     }
 
-    // 3. Return Next Number
-    // If no students yet, return Base. If students exist, return Max + 1.
-    // Wait, if base is 100, and no students, first should be 101 or 100? Usually 101.
-    // Let's assume user inputs 'Starting Series' like 100. So first student is 101.
-    return maxCurrent == base ? base + 1 : maxCurrent + 1;
+    // If maxCurrent is still base (no students), start from Base (or Base+1? Usually Series start means 100 -> 101, 102...)
+    // Let's assume if Series is 100, the first student gets 101.
+    return maxCurrent == base ? base + 1 : maxCurrent + 1; 
   }
 
-  // --- SELECTION LOGIC ---
+  // --- SELECTION ACTIONS ---
   void _toggleSelection(String id) {
     setState(() {
       if (_selectedIds.contains(id)) {
@@ -156,7 +191,7 @@ class _StudentsTabState extends State<StudentsTab> {
   void _selectAll() {
     setState(() {
       if (_selectedIds.length == _filteredStudents.length) {
-        _selectedIds.clear(); // Deselect All
+        _selectedIds.clear();
       } else {
         _selectedIds = _filteredStudents.map((e) => e.id).toSet();
       }
@@ -174,78 +209,54 @@ class _StudentsTabState extends State<StudentsTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: Column(
-        children: [
-          // 1. TOP BAR (Search OR Selection Actions)
-          _isSelectionMode ? _buildSelectionBar() : _buildFilterBar(),
-          
-          // 2. STUDENT LIST
-          Expanded(
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator()) 
-              : _filteredStudents.isEmpty 
-                  ? _buildEmptyState()
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2, // Mobile 2 Columns
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: 0.85, // Taller cards
-                      ),
-                      itemCount: _filteredStudents.length,
-                      itemBuilder: (context, index) {
-                        return _buildStudentCard(_filteredStudents[index]);
-                      },
-                    ),
-          ),
-        ],
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            // TOP BAR: SWITCH BETWEEN FILTERS AND SELECTION BAR
+            _isSelectionMode ? _buildSelectionBar() : _buildCompactActionCard(),
+            const SizedBox(height: 10),
+            Expanded(child: _buildStudentList()),
+          ],
+        ),
       ),
       floatingActionButton: _isSelectionMode ? null : FloatingActionButton.extended(
-        onPressed: () => _showAddEditStudentDialog(null),
-        label: const Text("Add Student"),
-        icon: const Icon(Icons.add),
+        onPressed: _openAddStudentDialog,
         backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+        icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+        label: const Text("REGISTER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
     );
   }
 
-  // --- WIDGETS ---
-
+  // 1. SELECTION BAR (NEW)
   Widget _buildSelectionBar() {
     return Container(
-      color: Colors.indigo.shade50,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.indigo.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.indigo.shade200)
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.close), 
-            onPressed: _exitSelectionMode,
-            tooltip: "Close Selection",
-          ),
+          IconButton(icon: const Icon(Icons.close, color: Colors.indigo), onPressed: _exitSelectionMode),
           const SizedBox(width: 8),
-          Text(
-            "${_selectedIds.length} Selected", 
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)
-          ),
+          Text("${_selectedIds.length} Selected", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 16)),
           const Spacer(),
-          // Select All
           TextButton.icon(
             onPressed: _selectAll,
             icon: Icon(_selectedIds.length == _filteredStudents.length ? Icons.check_box : Icons.check_box_outline_blank),
             label: const Text("All"),
           ),
-          // Bulk Edit
           IconButton(
             icon: const Icon(Icons.edit, color: Colors.blue),
-            onPressed: _selectedIds.isEmpty ? null : () => _showBulkEditDialog(),
+            onPressed: _selectedIds.isEmpty ? null : _showBulkEditDialog,
             tooltip: "Bulk Edit",
           ),
-          // Bulk Delete
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: _selectedIds.isEmpty ? null : () => _showBulkDeleteDialog(),
+            onPressed: _selectedIds.isEmpty ? null : _showBulkDeleteDialog,
             tooltip: "Bulk Delete",
           ),
         ],
@@ -253,282 +264,267 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  Widget _buildFilterBar() {
-    return Container(
+  // 2. NORMAL FILTER BAR
+  Widget _buildCompactActionCard() {
+    bool hasFilter = _filterTeam!=null || _filterCategory!=null || _filterGender!=null;
+
+    return Card(
+      elevation: 0,
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Column(
-        children: [
-          // Filter Chips Row
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                if (_isMixedMode) ...[
-                  _buildFilterChip("Boys", _filterGender == "Male", () => setState(() => _filterGender = _filterGender == "Male" ? null : "Male")),
-                  const SizedBox(width: 8),
-                  _buildFilterChip("Girls", _filterGender == "Female", () => setState(() => _filterGender = _filterGender == "Female" ? null : "Female")),
-                  const SizedBox(width: 8),
-                ],
-                // Team Filters
-                DropdownButton<String>(
-                  value: _filterTeam,
-                  hint: const Text("All Teams", style: TextStyle(fontSize: 12)),
-                  underline: const SizedBox(),
-                  onChanged: (v) => setState(() => _filterTeam = v),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text("All Teams")),
-                    ..._teams.map((t) => DropdownMenuItem(value: t, child: Text(t)))
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _compactDropdown(width: 150, value: _filterTeam, label: "Select Team", items: _teams, onChanged: (v) { _filterTeam = v; _applyFilters(); }),
+                    const SizedBox(width: 8),
+                    _compactDropdown(width: 150, value: _filterCategory, label: "Select Category", items: _categories, onChanged: (v) { _filterCategory = v; _applyFilters(); }),
+                    if (_isMixedMode) ...[
+                      const SizedBox(width: 8),
+                      _compactDropdown(width: 120, value: _filterGender, label: "Select Gender", items: ["Male", "Female"], onChanged: (v) { _filterGender = v; _applyFilters(); }),
+                    ],
                   ],
                 ),
-                const SizedBox(width: 10),
-                // Category Filters
-                DropdownButton<String>(
-                  value: _filterCategory,
-                  hint: const Text("All Cats", style: TextStyle(fontSize: 12)),
-                  underline: const SizedBox(),
-                  onChanged: (v) => setState(() => _filterCategory = v),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text("All Cats")),
-                    ..._categories.map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                  ],
-                ),
-                const SizedBox(width: 10),
-                // Export Button
-                IconButton(
-                  icon: const Icon(Icons.download, color: Colors.green),
-                  onPressed: _exportToExcel,
-                  tooltip: "Export List",
-                )
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String label, bool isSelected, VoidCallback onTap) {
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => onTap(),
-      selectedColor: Colors.indigo.shade100,
-      checkmarkColor: Colors.indigo,
-      labelStyle: TextStyle(color: isSelected ? Colors.indigo : Colors.black87, fontSize: 12),
-    );
-  }
-
-  Widget _buildStudentCard(DocumentSnapshot doc) {
-    Map d = doc.data() as Map;
-    bool isSelected = _selectedIds.contains(doc.id);
-    
-    // Team Color
-    Color teamColor = Colors.grey; // Default
-    // Assuming team details are needed, but for now using generic colors or passed from logic
-    
-    return InkWell(
-      onLongPress: () {
-        if (!_isSelectionMode) {
-          setState(() {
-            _isSelectionMode = true;
-            _selectedIds.add(doc.id);
-          });
-        }
-      },
-      onTap: () {
-        if (_isSelectionMode) {
-          _toggleSelection(doc.id);
-        } else {
-          _showAddEditStudentDialog(doc);
-        }
-      },
-      child: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: _isSelectionMode && isSelected 
-                  ? Border.all(color: Colors.indigo, width: 3) 
-                  : Border.all(color: Colors.grey.shade200),
-              boxShadow: [
-                BoxShadow(color: Colors.grey.shade100, blurRadius: 4, offset: const Offset(0, 2))
-              ]
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header (Chest No)
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.indigo.shade50,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(15))
-                  ),
-                  child: Center(
-                    child: Text(
-                      "${d['chestNo']}", 
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo)
-                    ),
-                  ),
-                ),
-                // Body
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(d['name'], textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        const SizedBox(height: 4),
-                        Text(d['teamId'], textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                        const SizedBox(height: 2),
-                        Text("${d['categoryId']} • ${d['gender']}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Checkbox Overlay
-          if (_isSelectionMode)
-            Positioned(
-              top: 8, right: 8,
-              child: Icon(
-                isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: isSelected ? Colors.indigo : Colors.grey,
               ),
-            )
-        ],
+            ),
+            
+            if(hasFilter)
+              IconButton(onPressed: _clearFilters, icon: const Icon(Icons.filter_alt_off, color: Colors.red, size: 20), tooltip: "Clear Filters", constraints: const BoxConstraints()),
+
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: _exportToExcel,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.green.withOpacity(0.3))),
+                child: const Icon(Icons.table_chart, size: 18, color: Colors.green),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people_outline, size: 60, color: Colors.grey.shade300),
-          const SizedBox(height: 10),
-          const Text("No students found", style: TextStyle(color: Colors.grey)),
+  Widget _compactDropdown({required double width, required String? value, required String label, required List<String> items, required Function(String?) onChanged}) {
+    return SizedBox(
+      width: width,
+      height: 40,
+      child: DropdownButtonFormField<String>(
+        value: value, isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+          floatingLabelBehavior: FloatingLabelBehavior.always,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          filled: true, fillColor: Colors.grey.shade50,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: Colors.grey.shade300)),
+        ),
+        items: [
+          DropdownMenuItem(value: null, child: Text("All", style: TextStyle(color: Colors.grey.shade600, fontSize: 12))),
+          ...items.map((item) => DropdownMenuItem(value: item, child: Text(item, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))))
         ],
+        onChanged: onChanged,
       ),
     );
   }
 
-  // --- DIALOGS ---
+  // 3. STUDENT LIST (UPDATED FOR SELECTION)
+  Widget _buildStudentList() {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_filteredStudents.isEmpty) return const Center(child: Text("No students found."));
 
-  // 1. ADD / EDIT STUDENT
-  void _showAddEditStudentDialog(DocumentSnapshot? doc) {
-    bool isEdit = doc != null;
-    Map d = isEdit ? doc.data() as Map : {};
-    
-    final nCtrl = TextEditingController(text: d['name'] ?? '');
-    final cCtrl = TextEditingController(text: (d['chestNo'] ?? 0).toString());
-    
-    String? team = d['teamId'] ?? (_teams.isNotEmpty ? _teams.first : null);
-    String? cat = d['categoryId'] ?? (_categories.isNotEmpty ? _categories.first : null);
-    String gen = d['gender'] ?? 'Male';
+    return ListView.separated(
+      itemCount: _filteredStudents.length,
+      padding: const EdgeInsets.only(bottom: 80),
+      separatorBuilder: (c, i) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        var doc = _filteredStudents[index];
+        var data = doc.data() as Map<String, dynamic>;
+        String docId = doc.id;
+        bool isSelected = _selectedIds.contains(docId);
+        
+        String gender = data['gender'] ?? 'Male';
+        bool isMale = gender == 'Male';
+        Color teamColor = _getTeamColor(data['teamId']);
 
-    // Helper to update chest no automatically
-    void autoUpdateChestNo(StateSetter setDialogState) {
-      if (!isEdit && team != null && cat != null) {
-        int next = _calculateNextChestNo(team!, cat!, gen);
-        cCtrl.text = next.toString();
+        return InkWell(
+          onLongPress: () {
+            if (!_isSelectionMode) {
+              setState(() {
+                _isSelectionMode = true;
+                _selectedIds.add(docId);
+              });
+            }
+          },
+          onTap: () {
+            if (_isSelectionMode) {
+              _toggleSelection(docId);
+            }
+            // else: Do nothing or show detail view if needed (User didn't specify tap action for single mode)
+          },
+          child: Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            color: _isSelectionMode && isSelected ? Colors.indigo.shade50 : Colors.white, // Highlight selection
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10), 
+              side: BorderSide(color: _isSelectionMode && isSelected ? Colors.indigo : Colors.grey.shade200, width: _isSelectionMode && isSelected ? 2 : 1)
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              // Leading: Chest No OR Checkbox
+              leading: _isSelectionMode 
+                ? Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? Colors.indigo : Colors.grey)
+                : Container(
+                    width: 50, height: 50,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: teamColor, borderRadius: BorderRadius.circular(8), boxShadow: [BoxShadow(color: teamColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]),
+                    child: Text(data['chestNo'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+                  ),
+              
+              title: Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: teamColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: teamColor.withOpacity(0.3))),
+                      child: Row(children: [Icon(Icons.shield, size: 10, color: teamColor), const SizedBox(width: 4), Text(data['teamId'], style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: teamColor))]),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(Icons.category_outlined, size: 14, color: Colors.grey.shade600),
+                    const SizedBox(width: 2),
+                    Text(data['categoryId'], style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                    if(_isMixedMode) ...[const SizedBox(width: 8), Icon(isMale ? Icons.male : Icons.female, size: 14, color: isMale ? Colors.blue : Colors.pink), const SizedBox(width: 2), Text(isMale ? "M" : "F", style: TextStyle(fontSize: 12, color: isMale ? Colors.blue : Colors.pink, fontWeight: FontWeight.bold))]
+                  ],
+                ),
+              ),
+              
+              // 3-DOT MENU (Hide in Selection Mode)
+              trailing: _isSelectionMode ? null : PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                onSelected: (value) {
+                  if (value == 'edit') _openEditDialog(docId, data);
+                  if (value == 'delete') _deleteStudent(docId, data['name']);
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 20), SizedBox(width: 10), Text('Edit')])),
+                  const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 10), Text('Delete')])),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // 4. ADD DIALOG (Smart Chest No)
+  void _openAddStudentDialog() {
+    String? selTeam; String? selCat; String selGender = 'Male'; bool isBulk = false;
+    final nameCtrl = TextEditingController(); final bulkCtrl = TextEditingController(); final chestCtrl = TextEditingController(text: "0");
+    String? errorMsg;
+
+    // Helper: Recalculate Chest No
+    void autoUpdateChest(StateSetter setDialogState) {
+      if (selTeam != null && selCat != null) {
+        int next = _calculateNextChestNo(selTeam!, selCat!, selGender);
+        chestCtrl.text = next.toString();
+        setDialogState(() {});
       }
     }
 
-    showDialog(context: context, builder: (ctx) => StatefulBuilder(
-      builder: (context, setDialogState) {
-        
-        // Auto-fill chest no on first load of Add Dialog
-        if (!isEdit && cCtrl.text == "0") {
-           autoUpdateChestNo(setDialogState);
-        }
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
+      return AlertDialog(
+        title: const Text("Register", style: TextStyle(fontWeight: FontWeight.bold)),
+        contentPadding: const EdgeInsets.all(16),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+           Row(children: [
+             Expanded(child: _compactDropdown(width: double.infinity, value: selTeam, label: "Select Team", items: _teams, onChanged: (v){ setDialogState(()=>selTeam=v); autoUpdateChest(setDialogState); })),
+             const SizedBox(width: 8),
+             Expanded(child: _compactDropdown(width: double.infinity, value: selCat, label: "Select Category", items: _categories, onChanged: (v){ setDialogState(()=>selCat=v); autoUpdateChest(setDialogState); })),
+           ]),
+           if(_isMixedMode) ...[const SizedBox(height: 8), Row(children: [const Text("Gender: ", style: TextStyle(fontSize: 12)), Radio(value: "Male", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); autoUpdateChest(setDialogState); }), const Text("M"), Radio(value: "Female", groupValue: selGender, onChanged: (v){ setDialogState(()=>selGender=v.toString()); autoUpdateChest(setDialogState); }), const Text("F")])],
+           const Divider(height: 16),
+           
+           Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Text("Bulk Names", style: TextStyle(fontSize: 12)), Switch(value: isBulk, onChanged: (v)=>setDialogState(()=>isBulk=v))]),
+           
+           if(!isBulk) TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name", isDense: true, border: OutlineInputBorder()))
+           else TextField(controller: bulkCtrl, maxLines: 3, decoration: const InputDecoration(labelText: "Names (One per line)", isDense: true, border: OutlineInputBorder())),
+           
+           const SizedBox(height: 12),
+           TextField(controller: chestCtrl, decoration: const InputDecoration(labelText: "Start Chest No", helperText: "Auto-suggested", border: OutlineInputBorder()), keyboardType: TextInputType.number),
+        ]),
+        actions: [
+          TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")), 
+          ElevatedButton(
+            onPressed: () async {
+               if (selTeam == null || selCat == null) return;
+               int startChest = int.tryParse(chestCtrl.text) ?? 0;
+               if (startChest == 0) return; // Prevent 0 chest no
 
-        return AlertDialog(
-          title: Text(isEdit ? "Edit Student" : "New Student"),
-          scrollable: true,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nCtrl, decoration: const InputDecoration(labelText: "Name", filled: true)),
-              const SizedBox(height: 12),
-              
-              DropdownButtonFormField<String>(
-                value: team,
-                decoration: const InputDecoration(labelText: "Team"),
-                items: _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                onChanged: (v) { 
-                  setDialogState(() => team = v); 
-                  autoUpdateChestNo(setDialogState);
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: cat,
-                decoration: const InputDecoration(labelText: "Category"),
-                items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                onChanged: (v) {
-                  setDialogState(() => cat = v);
-                  autoUpdateChestNo(setDialogState);
-                },
-              ),
-              const SizedBox(height: 12),
-              if (_isMixedMode)
-                Row(
-                  children: [
-                    Expanded(child: RadioListTile(title: const Text("Male"), value: "Male", groupValue: gen, onChanged: (v) { setDialogState(() => gen = v.toString()); autoUpdateChestNo(setDialogState); })),
-                    Expanded(child: RadioListTile(title: const Text("Female"), value: "Female", groupValue: gen, onChanged: (v) { setDialogState(() => gen = v.toString()); autoUpdateChestNo(setDialogState); })),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: cCtrl, 
-                keyboardType: TextInputType.number, 
-                decoration: const InputDecoration(labelText: "Chest No", helperText: "Auto-generated based on settings", filled: true)
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")),
-            // DELETE BUTTON (Only in Single Edit)
-            if (isEdit) 
-              TextButton(
-                onPressed: () { Navigator.pop(ctx); _deleteStudent(doc.id, d['name']); },
-                child: const Text("Delete", style: TextStyle(color: Colors.red)),
-              ),
-            ElevatedButton(
-              onPressed: () async {
-                if(nCtrl.text.isNotEmpty && team != null && cat != null) {
-                  Map<String, dynamic> data = {
-                    'name': nCtrl.text.trim(),
-                    'teamId': team,
-                    'categoryId': cat,
-                    'chestNo': int.parse(cCtrl.text),
-                    'gender': gen
-                  };
-
-                  if(isEdit) {
-                    await db.collection('students').doc(doc.id).update(data);
-                  } else {
-                    await db.collection('students').add(data);
-                  }
-                  if(mounted) Navigator.pop(ctx);
-                }
-              }, 
-              child: const Text("Save")
-            )
-          ]
-        );
-      }
-    ));
+               var batch = db.batch();
+               
+               if(isBulk) { 
+                 int currentC = startChest;
+                 for(var n in bulkCtrl.text.split('\n').where((s)=>s.trim().isNotEmpty)) { 
+                   batch.set(db.collection('students').doc(), {'name':n.trim(), 'teamId':selTeam, 'categoryId':selCat, 'gender':selGender, 'chestNo':currentC++, 'createdAt':FieldValue.serverTimestamp()}); 
+                 } 
+               } else if(nameCtrl.text.isNotEmpty) { 
+                 batch.set(db.collection('students').doc(), {'name':nameCtrl.text.trim(), 'teamId':selTeam, 'categoryId':selCat, 'gender':selGender, 'chestNo':startChest, 'createdAt':FieldValue.serverTimestamp()}); 
+               }
+               await batch.commit(); 
+               if(mounted) Navigator.pop(ctx);
+            }, 
+            child: const Text("Register")
+          )
+        ]
+      );
+    }));
   }
 
-  // 2. BULK EDIT DIALOG
+  // 5. SINGLE EDIT (With Smart Chest Update)
+  void _openEditDialog(String id, Map d) {
+      final nCtrl = TextEditingController(text: d['name']); 
+      final cCtrl = TextEditingController(text: d['chestNo'].toString());
+      String team = d['teamId']; 
+      String cat = d['categoryId']; 
+      String gen = d['gender'] ?? 'Male';
+      
+      showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (c, setDialogState) {
+          
+          void updateChestIfNeeded() {
+             // Logic: If user changes Team/Cat, suggest next available chest no for THAT new group
+             int next = _calculateNextChestNo(team, cat, gen);
+             cCtrl.text = next.toString();
+          }
+
+          return AlertDialog(
+            title: const Text("Edit"), contentPadding: const EdgeInsets.all(16),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+               TextField(controller: nCtrl, decoration: const InputDecoration(labelText: "Name", isDense: true, border: OutlineInputBorder())), const SizedBox(height: 8),
+               Row(children: [
+                 Expanded(child: _compactDropdown(width: double.infinity, value: team, label: "Select Team", items: _teams, onChanged: (v){ setDialogState(()=>team=v!); updateChestIfNeeded(); })), 
+                 const SizedBox(width: 8), 
+                 Expanded(child: _compactDropdown(width: double.infinity, value: cat, label: "Select Category", items: _categories, onChanged: (v){ setDialogState(()=>cat=v!); updateChestIfNeeded(); }))
+               ]),
+               if(_isMixedMode) Row(children: [Radio(value: "Male", groupValue: gen, onChanged: (v){ setDialogState(()=>gen=v.toString()); updateChestIfNeeded(); }), const Text("M"), Radio(value: "Female", groupValue: gen, onChanged: (v){ setDialogState(()=>gen=v.toString()); updateChestIfNeeded(); }), const Text("F")]),
+               TextField(controller: cCtrl, decoration: const InputDecoration(labelText: "Chest No", isDense: true, border: OutlineInputBorder(), helperText: "Updates automatically on change"))
+            ]),
+            actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("Cancel")), ElevatedButton(onPressed: () async { await db.collection('students').doc(id).update({'name':nCtrl.text,'teamId':team,'categoryId':cat,'chestNo':int.parse(cCtrl.text),'gender':gen}); if(mounted) Navigator.pop(ctx); }, child: const Text("Save"))]
+          );
+      }));
+  }
+
+  // 6. BULK EDIT (Clears Chest No)
   void _showBulkEditDialog() {
     String? selectedTeam;
     String? selectedCat;
@@ -541,32 +537,19 @@ class _StudentsTabState extends State<StudentsTab> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text("Select fields to update. Leave empty to keep original values.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text("Update fields for all selected students.", style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 15),
-              DropdownButtonFormField<String>(
-                value: selectedTeam,
-                decoration: const InputDecoration(labelText: "Change Team (Optional)"),
-                items: _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                onChanged: (v) => setDialogState(() => selectedTeam = v),
-              ),
+              DropdownButtonFormField<String>(value: selectedTeam, decoration: const InputDecoration(labelText: "Change Team (Optional)"), items: _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(), onChanged: (v) => setDialogState(() => selectedTeam = v)),
               const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: selectedCat,
-                decoration: const InputDecoration(labelText: "Change Category (Optional)"),
-                items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                onChanged: (v) => setDialogState(() => selectedCat = v),
-              ),
-              if (_isMixedMode) ...[
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  value: selectedGender,
-                  decoration: const InputDecoration(labelText: "Change Gender (Optional)"),
-                  items: const [DropdownMenuItem(value: "Male", child: Text("Male")), DropdownMenuItem(value: "Female", child: Text("Female"))],
-                  onChanged: (v) => setDialogState(() => selectedGender = v),
-                ),
-              ],
+              DropdownButtonFormField<String>(value: selectedCat, decoration: const InputDecoration(labelText: "Change Category (Optional)"), items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setDialogState(() => selectedCat = v)),
+              if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField<String>(value: selectedGender, decoration: const InputDecoration(labelText: "Change Gender (Optional)"), items: const [DropdownMenuItem(value: "Male", child: Text("Male")), DropdownMenuItem(value: "Female", child: Text("Female"))], onChanged: (v) => setDialogState(() => selectedGender = v))],
               const SizedBox(height: 15),
-              const Text("Note: Chest Numbers will be cleared to '0' on update.", style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+              // WARNING ABOUT CHEST NO
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.orange.shade200)),
+                child: const Row(children: [Icon(Icons.warning_amber, size: 16, color: Colors.orange), SizedBox(width: 8), Expanded(child: Text("Chest Numbers will be RESET to 0. You must assign new numbers later.", style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)))])
+              ),
             ],
           ),
           actions: [
@@ -580,9 +563,8 @@ class _StudentsTabState extends State<StudentsTab> {
                   if (selectedCat != null) updates['categoryId'] = selectedCat;
                   if (selectedGender != null) updates['gender'] = selectedGender;
                   
-                  // If any change, clear Chest No
                   if (updates.isNotEmpty) {
-                    updates['chestNo'] = 0; // Cleared as per requirement
+                    updates['chestNo'] = 0; // CLEARED AS PER REQUIREMENT
                     batch.update(db.collection('students').doc(id), updates);
                   }
                 }
@@ -601,19 +583,17 @@ class _StudentsTabState extends State<StudentsTab> {
     ));
   }
 
-  // 3. BULK DELETE DIALOG
+  // 7. BULK DELETE
   void _showBulkDeleteDialog() {
     showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Bulk Delete"),
-      content: Text("Are you sure you want to delete ${_selectedIds.length} students?"),
+      title: const Text("Bulk Delete", style: TextStyle(color: Colors.red)),
+      content: Text("Are you sure you want to delete ${_selectedIds.length} students? This cannot be undone."),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
         ElevatedButton(
           onPressed: () async {
             var batch = db.batch();
-            for (var id in _selectedIds) {
-              batch.delete(db.collection('students').doc(id));
-            }
+            for (var id in _selectedIds) batch.delete(db.collection('students').doc(id));
             await batch.commit();
             _exitSelectionMode();
             if(mounted) {
@@ -628,23 +608,22 @@ class _StudentsTabState extends State<StudentsTab> {
     ));
   }
 
-  // Single Delete (Called from Edit Dialog)
   Future<void> _deleteStudent(String id, String n) async {
     bool confirm = await showDialog(
       context: context, 
       builder: (c) => AlertDialog(
-        title: const Text("Delete Student?"), 
-        content: Text("Remove '$n'?"), 
+        title: const Text("Delete Student?", style: TextStyle(fontWeight: FontWeight.bold)), 
+        content: Text("Permanently remove '$n'?"), 
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("No")),
-          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes"))
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("No", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Delete"))
         ]
       )
     ) ?? false;
 
     if (confirm) {
       await db.collection('students').doc(id).delete();
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Deleted")));
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student deleted")));
     }
   }
 

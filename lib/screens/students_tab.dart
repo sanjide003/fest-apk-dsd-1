@@ -1,6 +1,6 @@
 // File: lib/screens/students_tab.dart
-// Version: 10.0
-// Description: Bulk Selection, Bulk Edit (Clear Chest No), Smart Chest Auto-fill, Team Colors Preserved.
+// Version: 11.0
+// Description: Bulk Selection, Bulk Edit (Auto-assigns Chest No based on target group), Smart Chest Auto-fill.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -139,40 +139,24 @@ class _StudentsTabState extends State<StudentsTab> {
 
   // --- AUTO CHEST NUMBER LOGIC ---
   int _calculateNextChestNo(String team, String category, String gender) {
-    // Key format based on Settings Tab logic
-    // If Mixed: "Team-Cat-Gender" (e.g. Red-Senior-Male)
-    // If Settings stored only "Male"/"Female" suffix regardless of mixed mode logic in previous step
-    // let's follow the standard pattern:
-    String key = "$team-$category-$gender"; // e.g. "Red-Senior-Male"
+    // Key format: Team-Category-Gender
+    String key = "$team-$category-$gender"; 
     
-    // Check if chestConfig has this key
-    int base = 0;
-    if (_chestConfig.containsKey(key)) {
-      base = _chestConfig[key] ?? 0;
-    } else {
-      // Fallback or try finding without gender if mode differs? 
-      // Assuming settings_tab saves exactly as "$team-$category-$gender"
-    }
-    
+    // 1. Get Base Number
+    int base = _chestConfig[key] ?? 0;
     if (base == 0) return 0; // Not configured
 
+    // 2. Find current max chest no in this specific group
     int maxCurrent = base;
-    
-    // Find max in existing list
     for (var doc in _allStudents) {
       var d = doc.data() as Map;
-      if (d['teamId'] == team && d['categoryId'] == category) {
-        // Gender check depending on mixed mode strictly? 
-        // Best to check exact gender match for sequence.
-        if (d['gender'] == gender) {
-           int cNo = d['chestNo'] ?? 0;
-           if (cNo > maxCurrent) maxCurrent = cNo;
-        }
+      if (d['teamId'] == team && d['categoryId'] == category && d['gender'] == gender) {
+         int cNo = d['chestNo'] ?? 0;
+         if (cNo > maxCurrent) maxCurrent = cNo;
       }
     }
 
-    // If maxCurrent is still base (no students), start from Base (or Base+1? Usually Series start means 100 -> 101, 102...)
-    // Let's assume if Series is 100, the first student gets 101.
+    // 3. Return next
     return maxCurrent == base ? base + 1 : maxCurrent + 1; 
   }
 
@@ -229,7 +213,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 1. SELECTION BAR (NEW)
+  // 1. SELECTION BAR
   Widget _buildSelectionBar() {
     return Container(
       decoration: BoxDecoration(
@@ -335,7 +319,7 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 3. STUDENT LIST (UPDATED FOR SELECTION)
+  // 3. STUDENT LIST
   Widget _buildStudentList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_filteredStudents.isEmpty) return const Center(child: Text("No students found."));
@@ -367,19 +351,17 @@ class _StudentsTabState extends State<StudentsTab> {
             if (_isSelectionMode) {
               _toggleSelection(docId);
             }
-            // else: Do nothing or show detail view if needed (User didn't specify tap action for single mode)
           },
           child: Card(
             elevation: 0,
             margin: EdgeInsets.zero,
-            color: _isSelectionMode && isSelected ? Colors.indigo.shade50 : Colors.white, // Highlight selection
+            color: _isSelectionMode && isSelected ? Colors.indigo.shade50 : Colors.white, 
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10), 
               side: BorderSide(color: _isSelectionMode && isSelected ? Colors.indigo : Colors.grey.shade200, width: _isSelectionMode && isSelected ? 2 : 1)
             ),
             child: ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              // Leading: Chest No OR Checkbox
               leading: _isSelectionMode 
                 ? Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? Colors.indigo : Colors.grey)
                 : Container(
@@ -408,7 +390,7 @@ class _StudentsTabState extends State<StudentsTab> {
                 ),
               ),
               
-              // 3-DOT MENU (Hide in Selection Mode)
+              // 3-DOT MENU
               trailing: _isSelectionMode ? null : PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.grey),
                 onSelected: (value) {
@@ -427,13 +409,11 @@ class _StudentsTabState extends State<StudentsTab> {
     );
   }
 
-  // 4. ADD DIALOG (Smart Chest No)
+  // 4. ADD DIALOG
   void _openAddStudentDialog() {
     String? selTeam; String? selCat; String selGender = 'Male'; bool isBulk = false;
     final nameCtrl = TextEditingController(); final bulkCtrl = TextEditingController(); final chestCtrl = TextEditingController(text: "0");
-    String? errorMsg;
 
-    // Helper: Recalculate Chest No
     void autoUpdateChest(StateSetter setDialogState) {
       if (selTeam != null && selCat != null) {
         int next = _calculateNextChestNo(selTeam!, selCat!, selGender);
@@ -469,10 +449,9 @@ class _StudentsTabState extends State<StudentsTab> {
             onPressed: () async {
                if (selTeam == null || selCat == null) return;
                int startChest = int.tryParse(chestCtrl.text) ?? 0;
-               if (startChest == 0) return; // Prevent 0 chest no
+               if (startChest == 0) return;
 
                var batch = db.batch();
-               
                if(isBulk) { 
                  int currentC = startChest;
                  for(var n in bulkCtrl.text.split('\n').where((s)=>s.trim().isNotEmpty)) { 
@@ -491,7 +470,7 @@ class _StudentsTabState extends State<StudentsTab> {
     }));
   }
 
-  // 5. SINGLE EDIT (With Smart Chest Update)
+  // 5. SINGLE EDIT
   void _openEditDialog(String id, Map d) {
       final nCtrl = TextEditingController(text: d['name']); 
       final cCtrl = TextEditingController(text: d['chestNo'].toString());
@@ -502,7 +481,6 @@ class _StudentsTabState extends State<StudentsTab> {
       showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (c, setDialogState) {
           
           void updateChestIfNeeded() {
-             // Logic: If user changes Team/Cat, suggest next available chest no for THAT new group
              int next = _calculateNextChestNo(team, cat, gen);
              cCtrl.text = next.toString();
           }
@@ -524,7 +502,7 @@ class _StudentsTabState extends State<StudentsTab> {
       }));
   }
 
-  // 6. BULK EDIT (Clears Chest No)
+  // 6. BULK EDIT (UPDATED: Auto Update Chest No)
   void _showBulkEditDialog() {
     String? selectedTeam;
     String? selectedCat;
@@ -537,18 +515,17 @@ class _StudentsTabState extends State<StudentsTab> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text("Update fields for all selected students.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text("Select fields to update.", style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 15),
               DropdownButtonFormField<String>(value: selectedTeam, decoration: const InputDecoration(labelText: "Change Team (Optional)"), items: _teams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(), onChanged: (v) => setDialogState(() => selectedTeam = v)),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(value: selectedCat, decoration: const InputDecoration(labelText: "Change Category (Optional)"), items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setDialogState(() => selectedCat = v)),
               if (_isMixedMode) ...[const SizedBox(height: 10), DropdownButtonFormField<String>(value: selectedGender, decoration: const InputDecoration(labelText: "Change Gender (Optional)"), items: const [DropdownMenuItem(value: "Male", child: Text("Male")), DropdownMenuItem(value: "Female", child: Text("Female"))], onChanged: (v) => setDialogState(() => selectedGender = v))],
               const SizedBox(height: 15),
-              // WARNING ABOUT CHEST NO
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.orange.shade200)),
-                child: const Row(children: [Icon(Icons.warning_amber, size: 16, color: Colors.orange), SizedBox(width: 8), Expanded(child: Text("Chest Numbers will be RESET to 0. You must assign new numbers later.", style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)))])
+                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blue.shade200)),
+                child: const Row(children: [Icon(Icons.auto_fix_high, size: 16, color: Colors.blue), SizedBox(width: 8), Expanded(child: Text("Chest Numbers will be automatically REASSIGNED based on the new groups.", style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)))])
               ),
             ],
           ),
@@ -557,22 +534,57 @@ class _StudentsTabState extends State<StudentsTab> {
             ElevatedButton(
               onPressed: () async {
                 var batch = db.batch();
+                
+                // Helper to track incrementing chest numbers for groups during this bulk process
+                Map<String, int> runningMaxChests = {};
+
+                // Helper to get next chest (initializing from DB if needed)
+                int getNextForGroup(String t, String c, String g) {
+                  String key = "$t-$c-$g";
+                  if (!runningMaxChests.containsKey(key)) {
+                     // Calculate max from DB
+                     int base = _chestConfig[key] ?? 0;
+                     int max = base;
+                     for (var doc in _allStudents) {
+                       var d = doc.data() as Map;
+                       if (d['teamId'] == t && d['categoryId'] == c && d['gender'] == g) {
+                         int cNo = d['chestNo'] ?? 0;
+                         if (cNo > max) max = cNo;
+                       }
+                     }
+                     runningMaxChests[key] = max;
+                  }
+                  // Increment and return
+                  runningMaxChests[key] = runningMaxChests[key]! + 1;
+                  return runningMaxChests[key]!;
+                }
+
                 for (var id in _selectedIds) {
+                  var currentDoc = _allStudents.firstWhere((d) => d.id == id);
+                  var curData = currentDoc.data() as Map<String, dynamic>;
+
+                  String t = selectedTeam ?? curData['teamId'];
+                  String c = selectedCat ?? curData['categoryId'];
+                  String g = selectedGender ?? curData['gender'] ?? 'Male';
+
                   Map<String, dynamic> updates = {};
-                  if (selectedTeam != null) updates['teamId'] = selectedTeam;
-                  if (selectedCat != null) updates['categoryId'] = selectedCat;
-                  if (selectedGender != null) updates['gender'] = selectedGender;
+                  if (selectedTeam != null) updates['teamId'] = t;
+                  if (selectedCat != null) updates['categoryId'] = c;
+                  if (selectedGender != null) updates['gender'] = g;
                   
+                  // Always recalculate chest no if we are updating groups
+                  // Even if only 1 field changed, the combination changed, so sequence must change.
                   if (updates.isNotEmpty) {
-                    updates['chestNo'] = 0; // CLEARED AS PER REQUIREMENT
+                    updates['chestNo'] = getNextForGroup(t, c, g);
                     batch.update(db.collection('students').doc(id), updates);
                   }
                 }
+                
                 await batch.commit();
                 _exitSelectionMode();
                 if(mounted) {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bulk Update Successful")));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bulk Update & Reassignment Successful")));
                 }
               }, 
               child: const Text("Update All")
@@ -587,7 +599,7 @@ class _StudentsTabState extends State<StudentsTab> {
   void _showBulkDeleteDialog() {
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text("Bulk Delete", style: TextStyle(color: Colors.red)),
-      content: Text("Are you sure you want to delete ${_selectedIds.length} students? This cannot be undone."),
+      content: Text("Are you sure you want to delete ${_selectedIds.length} students?"),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
         ElevatedButton(
@@ -609,22 +621,8 @@ class _StudentsTabState extends State<StudentsTab> {
   }
 
   Future<void> _deleteStudent(String id, String n) async {
-    bool confirm = await showDialog(
-      context: context, 
-      builder: (c) => AlertDialog(
-        title: const Text("Delete Student?", style: TextStyle(fontWeight: FontWeight.bold)), 
-        content: Text("Permanently remove '$n'?"), 
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("No", style: TextStyle(color: Colors.grey))),
-          ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Delete"))
-        ]
-      )
-    ) ?? false;
-
-    if (confirm) {
-      await db.collection('students').doc(id).delete();
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Student deleted")));
-    }
+    bool confirm = await showDialog(context: context, builder: (c) => AlertDialog(title: const Text("Delete Student?"), content: Text("Remove '$n'?"), actions: [TextButton(onPressed: ()=>Navigator.pop(c,false), child: const Text("No")), ElevatedButton(onPressed: ()=>Navigator.pop(c,true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes"))])) ?? false;
+    if (confirm) { await db.collection('students').doc(id).delete(); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Deleted"))); }
   }
 
   Future<void> _exportToExcel() async {

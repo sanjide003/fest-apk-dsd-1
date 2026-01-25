@@ -1,6 +1,6 @@
 // File: lib/screens/settings_tab.dart
-// Version: 8.0
-// Description: Split Chest Matrix for Mixed Mode, Hex Color Input, and Popup Menus for Teams/Categories.
+// Version: 8.1
+// Description: Reverted design to original. Added Split Chest Matrix, Hex Color Input, and Inline Dropdown Menus.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -120,7 +120,7 @@ class _SettingsViewState extends State<SettingsView> {
                         children: [
                           Expanded(child: _modeOption('mixed', "Mixed (Boys & Girls)", Icons.wc)),
                           const SizedBox(width: 10),
-                          Expanded(child: _modeOption('boys', "Single Gender", Icons.male)), // Can be used for Girls Only too logically
+                          Expanded(child: _modeOption('boys', "Single Gender", Icons.male)),
                         ],
                       ),
                       const SizedBox(height: 15),
@@ -153,22 +153,13 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
+  // OLD STYLE WARNING (Restored)
   Future<void> _unlockWithDetailedWarning() async {
     bool confirm = await showDialog(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.red), SizedBox(width: 8), Text("Unlock & Reset?", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Unlocking will perform a FACTORY RESET. All data will be DELETED:", style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
-            Text("• Students, Events, Points, Results", style: TextStyle(color: Colors.red)),
-            SizedBox(height: 10),
-            Text("Are you sure?", style: TextStyle(fontStyle: FontStyle.italic)),
-          ],
-        ),
+        title: const Text("Unlock & Reset?", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: const Text("Unlocking will perform a FACTORY RESET. All data will be DELETED. Are you sure?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Cancel")),
           ElevatedButton(onPressed: () => Navigator.pop(c, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Yes, Reset"))
@@ -191,7 +182,7 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  // ================= 2. TEAMS MANAGEMENT (POPUP MENU) =================
+  // ================= 2. TEAMS MANAGEMENT (DROPDOWN MENU) =================
   Widget _buildTeamsSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -219,32 +210,43 @@ class _SettingsViewState extends State<SettingsView> {
                   spacing: 8, runSpacing: 8,
                   children: teams.map((tName) {
                     Map d = details[tName] ?? {};
+                    // Custom Container to look like Chip but with PopupMenu
                     return Container(
-                      padding: const EdgeInsets.only(left: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: Colors.grey.shade300),
                       ),
+                      padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 6),
+                          CircleAvatar(backgroundColor: Color(d['color'] ?? 0xFF000000), radius: 10),
                           const SizedBox(width: 8),
-                          Text(tName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          // UPDATED: Popup Menu Button instead of Modal Bottom Sheet
+                          Text(tName, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                          const SizedBox(width: 4),
+                          // Dropdown Menu
                           PopupMenuButton<String>(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
                             icon: const Icon(Icons.more_vert, size: 18, color: Colors.grey),
-                            tooltip: "Options",
-                            onSelected: (val) {
-                              if (val == 'edit') _showEditTeamDialog(tName, teams, details);
-                              if (val == 'delete') _deleteTeam(tName, teams, details);
+                            onSelected: (value) {
+                              if (value == 'edit') _showEditTeamDialog(tName, teams, details);
+                              if (value == 'delete') _deleteTeam(tName, teams, details);
                             },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18, color: Colors.blue), SizedBox(width: 8), Text("Edit")])),
-                              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text("Delete")])),
+                            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                              const PopupMenuItem<String>(
+                                value: 'edit',
+                                height: 40,
+                                child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 16), SizedBox(width: 8), Text('Edit', style: TextStyle(fontSize: 13))]),
+                              ),
+                              const PopupMenuItem<String>(
+                                value: 'delete',
+                                height: 40,
+                                child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 16), SizedBox(width: 8), Text('Delete', style: TextStyle(fontSize: 13))]),
+                              ),
                             ],
-                          )
+                          ),
                         ],
                       ),
                     );
@@ -278,61 +280,58 @@ class _SettingsViewState extends State<SettingsView> {
     ));
   }
 
+  // EDIT TEAM DIALOG (With Hex Input)
   void _showEditTeamDialog(String name, List allTeams, Map allDetails) {
     Map d = allDetails[name] ?? {};
     TextEditingController editNameCtrl = TextEditingController(text: name);
     TextEditingController editPassCtrl = TextEditingController(text: d['passcode'] ?? '');
-    
     Color selectedColor = Color(d['color'] ?? 0xFF2196F3);
-    // Hex Controller
     TextEditingController hexCtrl = TextEditingController(text: '#${selectedColor.value.toRadixString(16).substring(2).toUpperCase()}');
 
     showDialog(context: context, builder: (ctx) => StatefulBuilder(
       builder: (context, setDialogState) {
         return AlertDialog(
           title: const Text("Edit Team"),
-          scrollable: true,
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: editNameCtrl, decoration: const InputDecoration(labelText: "Team Name")),
-            const SizedBox(height: 10),
-            TextField(controller: editPassCtrl, decoration: const InputDecoration(labelText: "Login Passcode")),
-            const SizedBox(height: 15),
-            
-            // Hex Input & Preview
-            Row(
-              children: [
-                const Text("Color: "),
-                Container(width: 24, height: 24, decoration: BoxDecoration(color: selectedColor, shape: BoxShape.circle, border: Border.all(color: Colors.grey))),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: hexCtrl,
-                    decoration: const InputDecoration(labelText: "Hex (e.g. #FF0000)", isDense: true),
-                    onChanged: (val) {
-                      if (val.length >= 7) {
-                        try {
-                          Color c = Color(int.parse(val.replaceAll('#', '0xFF')));
-                          setDialogState(() => selectedColor = c);
-                        } catch(e) {}
-                      }
-                    },
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: editNameCtrl, decoration: const InputDecoration(labelText: "Team Name")),
+              const SizedBox(height: 10),
+              TextField(controller: editPassCtrl, decoration: const InputDecoration(labelText: "Login Passcode")),
+              const SizedBox(height: 15),
+              // Color & Hex
+              Row(
+                children: [
+                  const Text("Color: "),
+                  Container(width: 24, height: 24, decoration: BoxDecoration(color: selectedColor, shape: BoxShape.circle, border: Border.all(color: Colors.grey))),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: hexCtrl,
+                      decoration: const InputDecoration(labelText: "Hex Code", isDense: true),
+                      onChanged: (val) {
+                        if (val.length >= 7) {
+                          try {
+                            Color c = Color(int.parse(val.replaceAll('#', '0xFF')));
+                            setDialogState(() => selectedColor = c);
+                          } catch(e) {}
+                        }
+                      },
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            
-            // Color Palette
-            Wrap(spacing: 5, children: _colors.map((c) => InkWell(
-              onTap: () {
-                setDialogState(() {
-                  selectedColor = c;
-                  hexCtrl.text = '#${c.value.toRadixString(16).substring(2).toUpperCase()}';
-                });
-              },
-              child: Container(width: 32, height: 32, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: selectedColor == c ? Border.all(width: 3, color: Colors.black) : null)),
-            )).toList()),
-          ]),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(spacing: 5, children: _colors.map((c) => InkWell(
+                onTap: () {
+                  setDialogState(() {
+                    selectedColor = c;
+                    hexCtrl.text = '#${c.value.toRadixString(16).substring(2).toUpperCase()}';
+                  });
+                },
+                child: Container(width: 32, height: 32, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: selectedColor == c ? Border.all(width: 3, color: Colors.black) : null)),
+              )).toList()),
+            ]),
+          ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
             ElevatedButton(onPressed: () async {
@@ -361,7 +360,7 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  // ================= 3. CATEGORIES MANAGEMENT (POPUP MENU) =================
+  // ================= 3. CATEGORIES MANAGEMENT (DROPDOWN MENU) =================
   Widget _buildCategoriesSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
@@ -402,7 +401,6 @@ class _SettingsViewState extends State<SettingsView> {
                     children: [
                       Text(c, style: const TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(width: 4),
-                      // UPDATED: Popup Menu
                       PopupMenuButton<String>(
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
@@ -447,7 +445,7 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _deleteCategory(String cat, List allCats) async {
-    if(await _confirm("Delete Category?", "Remove '$cat'?")) {
+    if(await _confirm("Delete Category?", "Remove '$cat'? This may affect events.")) {
       allCats.remove(cat);
       await db.collection('settings').doc('general').update({'categories': allCats});
     }
@@ -499,6 +497,7 @@ class _SettingsViewState extends State<SettingsView> {
                         headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
                         border: TableBorder.all(color: Colors.grey.shade200),
                         columns: [const DataColumn(label: Text("Category")), ...teams.map((t) => DataColumn(label: Text(t)))],
+                        // SPLIT LOGIC
                         rows: cats.expand<DataRow>((c) {
                           List<DataRow> rows = [];
                           
@@ -553,7 +552,7 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ================= 5. TEAM LEADERS =================
+  // ================= 5. TEAM LEADERS (OLD STYLE) =================
   Widget _buildTeamLeadersSection() {
     return StreamBuilder<DocumentSnapshot>(
       stream: db.collection('settings').doc('general').snapshots(),
